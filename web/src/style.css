@@ -91,10 +91,13 @@ th:last-child, td:last-child { padding-right: 18px; }
 .row-actions .delete-button:hover { background: #faeae5; color: #b67060; }
 .pagination { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; padding: 18px 24px; font-size: 10px; color: #97a08e; }
 .pagination button { padding: 7px 10px; background: white; border: 1px solid #e7ebdf; border-radius: 5px; color: #708465; font-size: 10px; }
-.page-buttons, .page-jump, .page-jump label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.page-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .pagination button[aria-current="page"] { background: #e6efdf; border-color: #9bb18a; color: #355d43; font-weight: 600; }
-.page-jump { margin-left: auto; }
-.page-jump input { width: 72px; padding: 7px; font-size: 11px; }
+.page-jump { display: flex; flex-wrap: wrap; flex-basis: 100%; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid #edf0e8; font-size: 12px; }
+.page-jump label { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: inherit; white-space: nowrap; }
+.page-jump input { width: 72px; height: 34px; padding: 6px 8px; font-size: inherit; text-align: center; }
+.page-jump > span { white-space: nowrap; }
+.page-jump button { height: 34px; padding: 6px 12px; font-size: inherit; }
 .breakdown { padding: 24px 20px; }
 .muted { color: #97a08e; font-size: 12px; line-height: 1.7; }
 .breakdown > .muted { font-size: 10px; margin-top: 7px; }
