@@ -140,13 +140,13 @@ export default function App() {
             <button className="reset-button" onClick={() => changeView({ ...emptyFilters }, 0)}>Сбросить</button>
           </div>
           <div className="table-wrap" aria-busy={loading}>
-            <table><thead><tr><th>Расход</th><th>Участник</th><th>Дата</th><th className="amount-cell">Сумма</th><th><span className="sr-only">Действия</span></th></tr></thead>
-              <tbody>{!loading && !error && page.items.map(expense => <tr key={expense.id}>
-                <td><div className="expense-name"><span className={`category-icon category-${categories.indexOf(expense.category)}`}>{symbols[expense.category] || '◇'}</span><div><strong>{expense.comment || expense.category}</strong><span className="category-name">{expense.category}</span></div></div></td>
-                <td><span className="user-name">{users.find(user => user.id === expense.user_id)?.display_name || expense.user_id}</span></td>
-                <td className="date-cell">{dateLabel(expense.spent_at)}</td>
-                <td className="amount-cell"><strong>{money(expense.amount, currency)}</strong></td>
-                <td><div className="row-actions"><button aria-label={`Изменить расход ${expense.comment || expense.id}`} title="Изменить" onClick={() => setEditing(expense)}>✎</button><button className="delete-button" aria-label={`Удалить расход ${expense.comment || expense.id}`} title="Удалить" onClick={() => setDeleting(expense)}>×</button></div></td>
+            <table role="table" aria-label="Расходы"><thead role="rowgroup"><tr role="row"><th scope="col">Расход</th><th scope="col">Участник</th><th scope="col">Дата</th><th scope="col" className="amount-cell">Сумма</th><th scope="col"><span className="sr-only">Действия</span></th></tr></thead>
+              <tbody role="rowgroup">{!loading && !error && page.items.map(expense => <tr role="row" key={expense.id}>
+                <td role="cell" className="description-cell"><div className="expense-name"><span className={`category-icon category-${categories.indexOf(expense.category)}`}>{symbols[expense.category] || '◇'}</span><div><strong>{expense.comment || expense.category}</strong><span className="category-name">{expense.category}</span></div></div></td>
+                <td role="cell" className="member-cell"><span className="mobile-label" aria-hidden="true">Участник</span><span className="user-name">{users.find(user => user.id === expense.user_id)?.display_name || expense.user_id}</span></td>
+                <td role="cell" className="date-cell"><span className="mobile-label" aria-hidden="true">Дата</span>{dateLabel(expense.spent_at)}</td>
+                <td role="cell" className="amount-cell"><strong>{money(expense.amount, currency)}</strong></td>
+                <td role="cell" className="actions-cell"><div className="row-actions"><button aria-label={`Изменить расход ${expense.comment || expense.id}`} title="Изменить" onClick={() => setEditing(expense)}>✎<span className="mobile-action">Изменить</span></button><button className="delete-button" aria-label={`Удалить расход ${expense.comment || expense.id}`} title="Удалить" onClick={() => setDeleting(expense)}>×<span className="mobile-action">Удалить</span></button></div></td>
               </tr>)}</tbody>
             </table>
             {loading && <div className="empty-state" role="status"><span className="loader" />Загружаем расходы…</div>}
