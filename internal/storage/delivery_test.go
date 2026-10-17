@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"familyexpenses/internal/bot"
+	"familyexpenses/internal/dialog"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -66,7 +66,7 @@ func TestDeliveryDoesNotBlockProcessingAndPreservesDiagnostics(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT last_error FROM telegram_updates WHERE update_id=10`).Scan(&code); err != nil || code != "llm_timeout" {
 		t.Fatal("diagnostic removed after delivery")
 	}
-	if err := repo.Complete(ctx, 11, 111, "Готово", bot.State{}); err != nil {
+	if err := repo.Complete(ctx, 11, 111, "Готово", dialog.State{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.FailProcessing(ctx, 11, "Ошибка", "llm_timeout"); err != nil {

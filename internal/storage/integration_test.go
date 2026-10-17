@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"familyexpenses/internal/bot"
+	"familyexpenses/internal/dialog"
 	"familyexpenses/internal/expenses"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -83,7 +83,7 @@ func TestNewParticipantsRemainHiddenUntilRegistration(t *testing.T) {
 	if err != nil || len(users) != 2 {
 		t.Fatalf("incomplete participant exposed: %+v %v", users, err)
 	}
-	if _, err := (expenses.Service{Repo: repo}).Create(ctx, 0, expenses.Input{UserID: 333, Amount: "10", Category: "еда", SpentAt: "2026-10-16"}); !errors.Is(err, expenses.ErrInvalid) {
+	if _, err := (expenses.Service{Repo: repo}).Create(ctx, expenses.FamilyActor, expenses.Input{UserID: 333, Amount: "10", Category: "еда", SpentAt: "2026-10-16"}); !errors.Is(err, expenses.ErrInvalid) {
 		t.Fatalf("incomplete participant can own expenses: %v", err)
 	}
 }
@@ -158,7 +158,7 @@ func TestPostgresQueueDeduplicationAndAtomicity(t *testing.T) {
 	if _, err := (expenses.Service{Repo: txRepo}).Create(ctx, 111, expenses.Input{Amount: "350", Category: "еда", SpentAt: "2026-10-16"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := txRepo.Complete(ctx, 10, 111, "Добавлено", bot.State{}); err != nil {
+	if err := txRepo.Complete(ctx, 10, 111, "Добавлено", dialog.State{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := transaction.Rollback(ctx); err != nil {
@@ -171,7 +171,7 @@ func TestPostgresQueueDeduplicationAndAtomicity(t *testing.T) {
 	if err != nil || queued.Status != "pending" {
 		t.Fatal("queue status was not rolled back")
 	}
-	if err := repo.Complete(ctx, 10, 111, "Ответ", bot.State{Pending: &bot.Pending{ID: 5, Version: 2}}); err != nil {
+	if err := repo.Complete(ctx, 10, 111, "Ответ", dialog.State{Pending: &dialog.Pending{ID: 5, Version: 2}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.RetryProcessing(ctx, update); err != nil {
@@ -206,7 +206,7 @@ func TestPostgresQueueDeduplicationAndAtomicity(t *testing.T) {
 	if err != nil || state.Pending != nil {
 		t.Fatal("expired confirmation remains active")
 	}
-	if err := repo.Complete(ctx, 11, 111, "Ответ", bot.State{}); err != nil {
+	if err := repo.Complete(ctx, 11, 111, "Ответ", dialog.State{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.MarkSent(ctx, 11); err != nil {

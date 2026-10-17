@@ -223,7 +223,7 @@ func TestExpiredQueueItemDoesNotCallLLM(t *testing.T) {
 	if err := repo.Enqueue(ctx, storage.Update{ID: 1, UserID: 111, ChatID: 111, Text: "кофе"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE telegram_updates SET created_at=now()-interval '3 minutes'`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE telegram_updates SET created_at=now()-interval '2 hours'`); err != nil {
 		t.Fatal(err)
 	}
 	update, err := repo.NextUpdate(ctx)

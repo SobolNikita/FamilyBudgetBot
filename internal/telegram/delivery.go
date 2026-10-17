@@ -14,7 +14,7 @@ import (
 const receiptText = "Сообщение принято. Обрабатываю запросы по очереди; результат появится здесь. Повторять сообщение не нужно."
 
 func (runner Runner) deliver(ctx context.Context) {
-	repo := storage.Repository{DB: runner.Pool}
+	repo := runner.repository()
 	for ctx.Err() == nil {
 		update, err := repo.NextDelivery(ctx)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -31,7 +31,10 @@ func (runner Runner) deliver(ctx context.Context) {
 			continue
 		}
 		deliveryCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-		err = runner.deliverUpdate(deliveryCtx, repo, update)
+		err = repo.TouchDelivery(deliveryCtx, update)
+		if err == nil {
+			err = runner.deliverUpdate(deliveryCtx, repo, update)
+		}
 		cancel()
 		if err != nil && ctx.Err() == nil {
 			code := "telegram_delivery_failed"
@@ -40,6 +43,16 @@ func (runner Runner) deliver(ctx context.Context) {
 			if errors.As(err, &failure) {
 				code = fmt.Sprintf("telegram_http_%d", failure.Status)
 				retryAfter = failure.RetryAfter
+			}
+			if failure != nil && (failure.Status == 400 || failure.Status == 403) {
+				if err := repo.SuspendDelivery(ctx, update, code, failure.Status == 403); err != nil {
+					slog.Error("delivery suspension failed")
+				}
+				continue
+			}
+			if failure != nil && failure.Status == 401 {
+				retryAfter = max(retryAfter, time.Minute)
+				runner.Health.Worker("telegram_http_401")
 			}
 			slog.Warn("Telegram delivery failed", "update_id", update.ID, "code", code, "attempt", update.SendAttempts+1)
 			if retryErr := repo.RetryDelivery(ctx, update, retryAfter, code); retryErr != nil {

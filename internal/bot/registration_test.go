@@ -13,8 +13,12 @@ func TestRegistrationAsksBeforeAcceptingName(t *testing.T) {
 		}
 	}
 	result := Register(Registration{NameRequested: true}, "  Анна-Мария  ")
-	if !result.Handled || result.DisplayName != "Анна-Мария" {
+	if !result.Handled || result.DisplayName != "" || result.PendingName != "Анна-Мария" {
 		t.Fatalf("name not normalized: %+v", result)
+	}
+	confirmed := Register(Registration{NameRequested: true, PendingName: result.PendingName}, "да")
+	if confirmed.DisplayName != "Анна-Мария" || confirmed.PendingName != "" {
+		t.Fatalf("name not confirmed: %+v", confirmed)
 	}
 }
 

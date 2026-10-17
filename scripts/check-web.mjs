@@ -8,6 +8,11 @@ const root = resolve('web/dist')
 const requests = []
 let empty = false
 let stress = false
+let failExpenses = false
+let configDate = '2026-10-17'
+let loseCreateResponse = true
+const created = new Map()
+const createKeys = []
 await mkdir(resolve('.cache'), { recursive: true })
 const server = createServer(async (request, response) => {
   response.setHeader(
@@ -18,10 +23,31 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost')
   if (url.pathname.startsWith('/api/')) {
     requests.push(url.pathname + url.search)
+    if (url.pathname === '/api/expenses' && request.method === 'POST') {
+      let body = ''
+      for await (const chunk of request) body += chunk
+      const key = request.headers['idempotency-key']
+      createKeys.push(key)
+      if (!created.has(key)) created.set(key, { ...JSON.parse(body), id: '9001' })
+      if (loseCreateResponse) {
+        loseCreateResponse = false
+        response.writeHead(504, { 'Content-Type': 'application/json' })
+        response.end(JSON.stringify({ error: 'Шлюз потерял ответ после сохранения' }))
+        return
+      }
+      response.writeHead(201, { 'Content-Type': 'application/json' })
+      response.end(JSON.stringify(created.get(key)))
+      return
+    }
+    if (url.pathname === '/api/expenses' && failExpenses) {
+      response.writeHead(503, { 'Content-Type': 'application/json' })
+      response.end(JSON.stringify({ error: 'Тестовый сбой загрузки' }))
+      return
+    }
     const total = empty ? 0 : 400
     const offset = Number(url.searchParams.get('offset') || 0)
     const data = {
-      '/api/config': { currency: 'BYN', timezone: 'Europe/Minsk', today: '2026-10-17' },
+      '/api/config': { currency: 'BYN', timezone: 'Europe/Minsk', today: configDate },
       '/api/categories': ['еда', 'транспорт', 'другое'],
       '/api/users': [
         { id: '111', display_name: stress ? 'Оченьдлинноеимя'.repeat(8) : 'Никита' },
@@ -531,6 +557,44 @@ try {
       `Array.from(document.querySelectorAll('.pagination button')).every(button=>button.disabled)`,
     ),
     true,
+  )
+  empty = false
+  stress = false
+  await evaluate(`document.querySelector('.section-title button').click()`)
+  await wait(`${ready} && !!document.querySelector('tbody tr')`)
+  await evaluate(
+    `Array.from(document.querySelectorAll('.member')).find(e=>e.textContent.includes('Ева')).click()`,
+  )
+  await wait(`${ready} && document.querySelector('.filters select').value==='222'`)
+  configDate = '2026-10-18'
+  await evaluate(`document.querySelector('.heading .primary').click()`)
+  await wait(`!!document.querySelector('dialog[open]')`)
+  assert.equal(await evaluate(`document.querySelector('dialog select').value`), '222')
+  assert.equal(
+    await evaluate(`document.querySelector('dialog input[type=date]').value`),
+    '2026-10-18',
+  )
+  await evaluate(
+    `(() => {const input=document.querySelector('dialog input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'12.50');input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+  )
+  await evaluate(`document.querySelector('dialog form').requestSubmit()`)
+  await wait(
+    `!!document.querySelector('dialog .alert.error') && !document.querySelector('dialog .modal-actions .primary').disabled`,
+  )
+  assert.equal(await evaluate(`document.querySelector('dialog fieldset').disabled`), true)
+  await evaluate(`document.querySelector('dialog form').requestSubmit()`)
+  await wait(`${ready} && !document.querySelector('dialog')`)
+  assert.equal(createKeys.length, 2)
+  assert.equal(createKeys[0], createKeys[1])
+  assert.match(createKeys[0], /^[0-9a-f]{32}$/)
+  assert.equal(created.size, 1)
+  failExpenses = true
+  await evaluate(`document.querySelector('.shared-expenses').click()`)
+  await wait(`!!document.querySelector('.alert.error') && !document.querySelector('.loader')`)
+  assert.equal(await evaluate(`document.querySelector('.total-value').textContent`), '—')
+  assert.equal(await evaluate(`document.querySelectorAll('.breakdown-item').length`), 0)
+  console.log(
+    'PASS: selected owner, fresh form date, safe POST retry after lost response, no stale totals on API failure',
   )
   console.log(
     'PASS: 320–1440px layouts, touch targets, dialogs, long content, pagination, URL/history, filters and empty results',

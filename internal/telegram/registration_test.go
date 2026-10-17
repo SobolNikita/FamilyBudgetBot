@@ -107,6 +107,13 @@ func TestRegistrationPersistsAndDoesNotReplayNames(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	confirmation := storage.Update{ID: 3, UserID: 111, ChatID: 111, Text: "да"}
+	if err := repo.Enqueue(ctx, confirmation); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.process(ctx, repo, confirmation); err != nil {
+		t.Fatal(err)
+	}
 	users, err = repo.Users(ctx)
 	if err != nil || len(users) != 1 || users[0].DisplayName != "Анна" {
 		t.Fatalf("registration did not persist: %+v %v", users, err)
@@ -118,7 +125,7 @@ func TestRegistrationPersistsAndDoesNotReplayNames(t *testing.T) {
 	if err := repo.MarkSent(ctx, name.ID); err != nil {
 		t.Fatal(err)
 	}
-	expense := storage.Update{ID: 3, UserID: 111, ChatID: 111, Text: "кофе 350"}
+	expense := storage.Update{ID: 4, UserID: 111, ChatID: 111, Text: "кофе 350"}
 	if err := repo.Enqueue(ctx, expense); err != nil {
 		t.Fatal(err)
 	}
