@@ -174,7 +174,7 @@ func TestPostgresQueueDeduplicationAndAtomicity(t *testing.T) {
 	if err := repo.Complete(ctx, 10, 111, "Ответ", bot.State{Pending: &bot.Pending{ID: 5, Version: 2}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Retry(ctx, update, false); err != nil {
+	if err := repo.RetryProcessing(ctx, update); err != nil {
 		t.Fatal(err)
 	}
 	var reply string
@@ -188,7 +188,7 @@ func TestPostgresQueueDeduplicationAndAtomicity(t *testing.T) {
 	if err := repo.Enqueue(ctx, Update{ID: 11, UserID: 111, ChatID: 111, Text: "ещё кофе"}); err != nil {
 		t.Fatal(err)
 	}
-	queued, err = repo.NextUpdate(ctx)
+	queued, err = repo.NextDelivery(ctx)
 	if err != nil || queued.ID != 10 || queued.Status != "processed" {
 		t.Fatal("unsent reply lost order")
 	}
@@ -205,6 +205,9 @@ func TestPostgresQueueDeduplicationAndAtomicity(t *testing.T) {
 	state, err = repo.State(ctx, 111)
 	if err != nil || state.Pending != nil {
 		t.Fatal("expired confirmation remains active")
+	}
+	if err := repo.Complete(ctx, 11, 111, "Ответ", bot.State{}); err != nil {
+		t.Fatal(err)
 	}
 	if err := repo.MarkSent(ctx, 11); err != nil {
 		t.Fatal(err)

@@ -21,7 +21,8 @@ func (planner forbiddenPlanner) Plan(context.Context, llm.Request) (llm.Action, 
 	return llm.Action{}, nil
 }
 
-func TestRegistrationPersistsAndDoesNotReplayNames(t *testing.T) {
+func telegramTestDatabase(t *testing.T) *pgxpool.Pool {
+	t.Helper()
 	connectionString := os.Getenv("TEST_DATABASE_URL")
 	if connectionString == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -64,6 +65,12 @@ func TestRegistrationPersistsAndDoesNotReplayNames(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	return pool
+}
+
+func TestRegistrationPersistsAndDoesNotReplayNames(t *testing.T) {
+	pool := telegramTestDatabase(t)
+	ctx := context.Background()
 	repo := storage.Repository{DB: pool}
 	first := storage.Update{ID: 1, UserID: 111, ChatID: 111, Text: "кофе 350"}
 	runner := Runner{Pool: pool, Planner: forbiddenPlanner{testing: t}}
