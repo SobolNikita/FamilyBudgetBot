@@ -13,7 +13,8 @@ h1, h2, h3, p { margin: 0; }
 .sidebar { width: 248px; flex-shrink: 0; padding: 38px 22px 25px; border-right: 1px solid #e4e8df; background: #fafbf7; display: flex; flex-direction: column; }
 .brand { display: flex; align-items: center; gap: 13px; font-size: 17px; line-height: 1.3; padding: 0 12px; }
 .brand strong { font-weight: 700; }
-.brand-icon { background: #285e48; border-radius: 14px; font-size: 35px; width: 47px; height: 47px; display: grid; place-items: center; color: white; }
+.brand-icon { background: #285e48; border-radius: 14px; width: 47px; height: 47px; flex-shrink: 0; display: grid; place-items: center; color: white; line-height: 0; }
+.brand-icon svg { display: block; width: 72%; height: 72%; }
 .nav-caption { font-size: 10px; letter-spacing: 1.6px; color: #8d978e; margin: 48px 12px 15px; font-weight: 600; }
 .nav-active { background: #e8eee4; color: #355d43; display: flex; gap: 13px; align-items: center; padding: 15px; font-size: 14px; border-radius: 10px; font-weight: 600; }
 .nav-active > span:first-child { font-size: 20px; }

@@ -156,6 +156,7 @@ try {
   for (const width of [320, 360, 390, 430, 768, 1024, 1440]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: width <= 700 })
     await evaluate('window.scrollTo(0, 0)')
+    assert.equal(await evaluate(`(() => { const box = document.querySelector('.brand-icon').getBoundingClientRect(); const icon = document.querySelector('.brand-icon svg').getBoundingClientRect(); return Math.abs(box.x + box.width / 2 - icon.x - icon.width / 2) < 1 && Math.abs(box.y + box.height / 2 - icon.y - icon.height / 2) < 1 && icon.width < box.width && icon.height < box.height; })()`), true, `brand icon alignment at ${width}`)
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, `page overflow at ${width}`)
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('tbody tr')).display`), width <= 700 ? 'grid' : 'table-row')
     if (width <= 700) {

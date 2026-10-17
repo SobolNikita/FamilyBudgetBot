@@ -103,7 +103,7 @@ export default function App() {
 
   return <div className="layout">
     <aside className="sidebar">
-      <a className="brand" href="/" aria-label="Семейный бюджет, главная"><span className="brand-icon">⌂</span><span>Семейный<br /><strong>бюджет</strong></span></a>
+      <a className="brand" href="/" aria-label="Семейный бюджет, главная"><span className="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" focusable="false"><path d="M4 10 12 3 20 10V21H4Z" /><path d="M9 21V13H15V21" /></svg></span><span>Семейный<br /><strong>бюджет</strong></span></a>
       <div className="nav-caption">ВАШЕ ПРОСТРАНСТВО</div>
       <div className="nav-active"><span>▦</span> Расходы семьи <span className="nav-dot" /></div>
       <nav className="family-list" aria-label="Просмотр расходов">
