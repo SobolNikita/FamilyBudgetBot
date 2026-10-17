@@ -57,7 +57,7 @@ func TestDeleteRequiresConfirmationAndChecksVersion(t *testing.T) {
 	repo := &memoryRepo{item: item}
 	service := expenses.Service{Repo: repo}
 	engine := Engine{Currency: "BYN"}
-	prepared := Prepared{Text: "удали такси", Action: llm.Action{Name: "delete_expense", ID: "1"}, Snapshot: []expenses.Expense{item}}
+	prepared := Prepared{Text: "удали такси", Action: llm.Action{Name: "delete_expense", Subject: "self", ID: "1"}, Snapshot: []expenses.Expense{item}}
 	_, state, err := engine.Apply(ctx, service, 111, prepared)
 	if err != nil || state.Pending == nil || repo.deleted {
 		t.Fatalf("delete did not request confirmation: %+v %v", state, err)
@@ -79,7 +79,7 @@ func TestCrossUserAndInventedIDsRejected(t *testing.T) {
 	repo := &memoryRepo{item: item}
 	engine := Engine{}
 	for _, snapshot := range [][]expenses.Expense{nil, {item}} {
-		_, _, err := engine.Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "удали", Action: llm.Action{Name: "delete_expense", ID: "1"}, Snapshot: snapshot})
+		_, _, err := engine.Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "удали", Action: llm.Action{Name: "delete_expense", Subject: "self", ID: "1"}, Snapshot: snapshot})
 		if !errors.Is(err, expenses.ErrInvalid) || repo.deleted {
 			t.Fatal("unseen or foreign expense allowed")
 		}
@@ -90,7 +90,7 @@ func TestPartialUpdatePreservesOtherFields(t *testing.T) {
 	item := expenses.Expense{ID: 1, UserID: 111, Amount: "350.00", Category: "еда", SpentAt: "2026-10-16", Comment: "кофе", Version: 2}
 	repo := &memoryRepo{item: item}
 	amount := "450"
-	_, state, err := (Engine{Currency: "BYN"}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "последнее было 450", Action: llm.Action{Name: "update_expense", ID: "1", Amount: &amount}, Snapshot: []expenses.Expense{item}})
+	_, state, err := (Engine{Currency: "BYN"}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "последнее было 450", Action: llm.Action{Name: "update_expense", Subject: "self", ID: "1", Amount: &amount}, Snapshot: []expenses.Expense{item}})
 	if err != nil {
 		t.Fatal(err)
 	}

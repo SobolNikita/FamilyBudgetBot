@@ -28,7 +28,7 @@ func TestBatchCreationPreservesEveryItemAndContext(t *testing.T) {
 		{Amount: "8,20", Category: "еда", SpentAt: "2026-10-17", Comment: "Йогурт"},
 		{Amount: "5", Category: "еда", SpentAt: "2026-10-17", Comment: "Чипсы"},
 	}
-	reply, state, err := (Engine{Currency: "BYN"}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "Чипсы 5 Йогурт 8,20 Чипсы 5", Action: llm.Action{Name: "create_expenses", Expenses: items}})
+	reply, state, err := (Engine{Currency: "BYN"}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "Чипсы 5 Йогурт 8,20 Чипсы 5", Action: llm.Action{Name: "create_expenses", Subject: "self", Expenses: items}})
 	if err != nil || len(repo.created) != 3 {
 		t.Fatalf("batch incomplete: %+v %v", repo.created, err)
 	}
@@ -48,7 +48,7 @@ func TestBatchCreationPreservesEveryItemAndContext(t *testing.T) {
 func TestBatchSizeValidation(t *testing.T) {
 	for _, count := range []int{0, llm.MaxExpensesPerMessage + 1} {
 		repo := &batchRepo{}
-		_, _, err := (Engine{}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Action: llm.Action{Name: "create_expenses", Expenses: make([]llm.NewExpense, count)}})
+		_, _, err := (Engine{}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Action: llm.Action{Name: "create_expenses", Subject: "self", Expenses: make([]llm.NewExpense, count)}})
 		if !errors.Is(err, expenses.ErrInvalid) || len(repo.created) != 0 {
 			t.Fatal("invalid batch size accepted")
 		}

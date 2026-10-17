@@ -42,6 +42,8 @@ type Prepared struct {
 
 type Engine struct{ Currency string }
 
+const AccessDeniedReply = "Доступ запрещён. В Telegram можно просматривать и изменять только свои расходы. Запросы к расходам других участников и общему семейному отчёту недоступны."
+
 func Confirmation(text string) string {
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(text), ".! ")) {
 	case "да", "подтверждаю", "да, удали", "да удали", "удали":
@@ -74,6 +76,15 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			reply = "Ожидаю подтверждение удаления: ответьте «да» или «нет»."
 		}
 		return finish(prepared.Text, reply, state)
+	}
+	switch action.Subject {
+	case "other", "family":
+		return finish(prepared.Text, AccessDeniedReply, state)
+	case "unclear":
+		return finish(prepared.Text, "Уточните, пожалуйста: речь о ваших расходах? В Telegram доступны только ваши записи.", state)
+	case "self":
+	default:
+		return "", state, fmt.Errorf("%w: не удалось определить владельца расходов; уточните запрос", expenses.ErrInvalid)
 	}
 	filter := expenses.Filter{From: action.From, To: action.To, Search: action.Search, Limit: 20, Offset: action.Offset}
 	if action.Category != nil {

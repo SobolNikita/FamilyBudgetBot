@@ -34,7 +34,7 @@ func TestBatchCreationAtomicityAndReplay(t *testing.T) {
 			if _, err := pool.Exec(ctx, `INSERT INTO users (id,display_name) VALUES (111,'Анна')`); err != nil {
 				t.Fatal(err)
 			}
-			planner := &batchPlanner{action: llm.Action{Name: "create_expenses", Expenses: []llm.NewExpense{
+			planner := &batchPlanner{action: llm.Action{Name: "create_expenses", Subject: "self", Expenses: []llm.NewExpense{
 				{Amount: "5", Category: "еда", SpentAt: "2026-10-17", Comment: "Чипсы"},
 				{Amount: "8", Category: "еда", SpentAt: "2026-10-17", Comment: "Йогурт"},
 			}}}

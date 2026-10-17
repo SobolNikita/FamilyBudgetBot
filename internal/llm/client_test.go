@@ -22,7 +22,7 @@ func TestToolCallProtocol(t *testing.T) {
 		if body["tool_choice"] != "required" || body["parallel_tool_calls"] != false {
 			t.Error("unbounded tool choice")
 		}
-		fmt.Fprint(writer, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"create_expenses","arguments":"{\"expenses\":[{\"amount\":\"350\",\"category\":\"еда\",\"spent_at\":\"2026-10-16\",\"comment\":\"кофе\"}]}"}}]}}]}`)
+		fmt.Fprint(writer, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"create_expenses","arguments":"{\"subject\":\"self\",\"expenses\":[{\"amount\":\"350\",\"category\":\"еда\",\"spent_at\":\"2026-10-16\",\"comment\":\"кофе\"}]}"}}]}}]}`)
 	}))
 	defer server.Close()
 	action, err := New(server.URL, "test-key", "test-model").Plan(context.Background(), Request{Text: "кофе 350", Today: "2026-10-16"})
@@ -72,7 +72,7 @@ func TestBatchToolSchemaAndDecoding(t *testing.T) {
 		if !found {
 			t.Error("batch creation tool missing")
 		}
-		fmt.Fprint(writer, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"create_expenses","arguments":"{\"expenses\":[{\"amount\":\"5\",\"category\":\"еда\",\"spent_at\":\"2026-10-17\",\"comment\":\"Чипсы\"},{\"amount\":\"8\",\"category\":\"еда\",\"spent_at\":\"2026-10-17\",\"comment\":\"Йогурт\"}]}"}}]}}]}`)
+		fmt.Fprint(writer, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"create_expenses","arguments":"{\"subject\":\"self\",\"expenses\":[{\"amount\":\"5\",\"category\":\"еда\",\"spent_at\":\"2026-10-17\",\"comment\":\"Чипсы\"},{\"amount\":\"8\",\"category\":\"еда\",\"spent_at\":\"2026-10-17\",\"comment\":\"Йогурт\"}]}"}}]}}]}`)
 	}))
 	defer server.Close()
 	action, err := New(server.URL, "test-key", "test").Plan(context.Background(), Request{Text: "Чипсы 5 Йогурт 8"})

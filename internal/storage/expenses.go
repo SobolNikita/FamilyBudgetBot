@@ -55,6 +55,12 @@ func (repo Repository) Users(ctx context.Context) ([]expenses.User, error) {
 	return users, rows.Err()
 }
 
+func (repo Repository) User(ctx context.Context, userID int64) (expenses.User, error) {
+	var user expenses.User
+	err := repo.DB.QueryRow(ctx, `SELECT id, display_name FROM users WHERE id=$1 AND display_name<>''`, userID).Scan(&user.ID, &user.DisplayName)
+	return user, translate(err)
+}
+
 func where(filter expenses.Filter) (string, []any) {
 	clauses := []string{"TRUE"}
 	args := []any{}

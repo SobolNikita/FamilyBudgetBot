@@ -141,10 +141,14 @@ func (runner Runner) process(ctx context.Context, repo storage.Repository, updat
 	prepared := bot.Prepared{Text: update.Text, State: state, Snapshot: recent}
 	if state.Pending == nil {
 		if update.Text == "/start" || update.Text == "[неподдерживаемый тип сообщения]" || utf8.RuneCountInString(update.Text) > 2000 {
-			prepared.Action = llm.Action{Name: "ask_question", Question: "Пришлите короткое текстовое сообщение: «кофе 350», «покажи расходы за неделю», «последнее было 450» или «удали такси»."}
+			prepared.Action = llm.Action{Name: "ask_question", Subject: "self", Question: "Пришлите короткое текстовое сообщение: «кофе 350», «покажи расходы за неделю», «последнее было 450» или «удали такси»."}
 		} else {
+			user, err := repo.User(ctx, update.UserID)
+			if err != nil {
+				return err
+			}
 			started := time.Now()
-			prepared.Action, err = runner.Planner.Plan(ctx, llm.Request{Text: update.Text, Today: time.Now().In(runner.Location).Format(time.DateOnly), Currency: runner.Engine.Currency, Context: state.Context, RecentExpenses: recent})
+			prepared.Action, err = runner.Planner.Plan(ctx, llm.Request{Text: update.Text, Today: time.Now().In(runner.Location).Format(time.DateOnly), Currency: runner.Engine.Currency, CurrentUser: user.DisplayName, Context: state.Context, RecentExpenses: recent})
 			if err != nil {
 				if ctx.Err() != nil {
 					return ctx.Err()
