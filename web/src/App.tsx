@@ -13,7 +13,6 @@ import {
 } from './api'
 import { readView, viewURL, type ViewState } from './viewState'
 import Pagination from './Pagination'
-import ThemePicker from './ThemePicker'
 
 const emptyFilters: Filters = { user_id: '', from: '', to: '', category: '' }
 const symbols: Record<string, string> = {
@@ -231,10 +230,7 @@ export default function App() {
           <span>
             Обзор семьи <span className="breadcrumb">/</span> Расходы
           </span>
-          <div className="topbar-actions">
-            <span className="period-label">{settings?.timezone || 'Семейные финансы'}</span>
-            <ThemePicker />
-          </div>
+          <span className="period-label">{settings?.timezone || 'Семейные финансы'}</span>
         </header>
         <section className="heading">
           <div>
