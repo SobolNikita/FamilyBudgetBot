@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, money, query, type Expense, type ExpenseInput, type Filters, type Page, type Settings, type Summary, type User } from './api'
 import { readView, viewURL, type ViewState } from './viewState'
+import Pagination from './Pagination'
 
 const emptyFilters: Filters = { user_id: '', from: '', to: '', category: '' }
 const symbols: Record<string, string> = { еда: '◒', транспорт: '↗', жильё: '⌂', развлечения: '✳', здоровье: '+', покупки: '◇', другое: '⋯' }
@@ -152,7 +153,7 @@ export default function App() {
             {!loading && !error && page.items.length === 0 && <div className="empty-state"><span className="empty-icon">◇</span><h3>Здесь пока тихо</h3><p>Добавьте первый расход или измените фильтры.</p><button className="secondary" disabled={!settings || !users.length} onClick={() => setEditing('new')}>Добавить расход</button></div>}
             {!loading && error && <div className="empty-state">Не удалось загрузить данные. Попробуйте ещё раз.</div>}
           </div>
-          <footer className="pagination"><span>{page.total ? `${offset + 1}–${Math.min(offset + 20, page.total)} из ${page.total}` : '0 записей'}</span><div><button disabled={loading || offset === 0} onClick={() => changeView(filters, Math.max(0, offset - 20))}>← Назад</button><button disabled={loading || offset + 20 >= page.total} onClick={() => changeView(filters, offset + 20)}>Далее →</button></div></footer>
+          <Pagination total={page.total} offset={offset} disabled={loading || !!error} onChange={nextOffset => changeView(filters, nextOffset)} />
         </div>
 
         <aside className="breakdown"><h2>По категориям</h2><p className="muted">За выбранный период</p><div className="breakdown-list">{!loading && summary.categories.map(category => <div className="breakdown-item" key={category.category}><div><span><i className={`category-dot category-${categories.indexOf(category.category)}`} />{category.category}</span><strong>{money(category.amount, currency)}</strong></div><progress max="100" value={summary.amount === '0' || summary.amount === '0.00' ? 0 : Number(category.amount) / Number(summary.amount) * 100} aria-label={`Доля категории ${category.category}`} /></div>)}{!loading && !summary.categories.length && <p className="muted">Распределение появится вместе с первыми расходами.</p>}{loading && <p className="muted">Загрузка…</p>}</div><div className="tip"><span>✦</span><p>Записывайте расходы сразу — даже кофе по пути домой.</p></div></aside>

@@ -89,8 +89,12 @@ th:last-child, td:last-child { padding-right: 18px; }
 .row-actions button { background: transparent; color: #8e9d83; padding: 5px; font-size: 19px; border-radius: 5px; }
 .row-actions button:hover { background: #eff3e9; }
 .row-actions .delete-button:hover { background: #faeae5; color: #b67060; }
-.pagination { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px; font-size: 10px; color: #97a08e; }
-.pagination button { padding: 7px 10px; background: white; border: 1px solid #e7ebdf; border-radius: 5px; color: #708465; font-size: 10px; margin-left: 7px; }
+.pagination { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; padding: 18px 24px; font-size: 10px; color: #97a08e; }
+.pagination button { padding: 7px 10px; background: white; border: 1px solid #e7ebdf; border-radius: 5px; color: #708465; font-size: 10px; }
+.page-buttons, .page-jump, .page-jump label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pagination button[aria-current="page"] { background: #e6efdf; border-color: #9bb18a; color: #355d43; font-weight: 600; }
+.page-jump { margin-left: auto; }
+.page-jump input { width: 72px; padding: 7px; font-size: 11px; }
 .breakdown { padding: 24px 20px; }
 .muted { color: #97a08e; font-size: 12px; line-height: 1.7; }
 .breakdown > .muted { font-size: 10px; margin-top: 7px; }
