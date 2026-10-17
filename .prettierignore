@@ -1,0 +1,7 @@
+**/node_modules/
+web/dist/
+.cache/
+**/package-lock.json
+**/*.tsbuildinfo
+.env
+.env.*

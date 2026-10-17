@@ -42,6 +42,8 @@ type Prepared struct {
 
 type Engine struct{ Currency string }
 
+const AccessDeniedReply = "Доступ запрещён. В Telegram можно просматривать и изменять только свои расходы. Запросы к расходам других участников и общему семейному отчёту недоступны."
+
 func Confirmation(text string) string {
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(text), ".! ")) {
 	case "да", "подтверждаю", "да, удали", "да удали", "удали":
@@ -75,6 +77,15 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 		}
 		return finish(prepared.Text, reply, state)
 	}
+	switch action.Subject {
+	case "other", "family":
+		return finish(prepared.Text, AccessDeniedReply, state)
+	case "unclear":
+		return finish(prepared.Text, "Уточните, пожалуйста: речь о ваших расходах? В Telegram доступны только ваши записи.", state)
+	case "self":
+	default:
+		return "", state, fmt.Errorf("%w: не удалось определить владельца расходов; уточните запрос", expenses.ErrInvalid)
+	}
 	filter := expenses.Filter{From: action.From, To: action.To, Search: action.Search, Limit: 20, Offset: action.Offset}
 	if action.Category != nil {
 		filter.Category = *action.Category
@@ -85,6 +96,24 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			return "", state, fmt.Errorf("%w: не удалось сформулировать уточнение; попробуйте ещё раз", expenses.ErrInvalid)
 		}
 		reply = action.Question
+	case "create_expenses":
+		if len(action.Expenses) == 0 || len(action.Expenses) > llm.MaxExpensesPerMessage {
+			return "", state, fmt.Errorf("%w: пришлите от 1 до %d расходов в одном сообщении", expenses.ErrInvalid, llm.MaxExpensesPerMessage)
+		}
+		created := make([]expenses.Expense, 0, len(action.Expenses))
+		lines := []string{fmt.Sprintf("Добавлено расходов: %d.", len(action.Expenses))}
+		for position, item := range action.Expenses {
+			input := expenses.Input{Amount: item.Amount, Category: item.Category, SpentAt: item.SpentAt, Comment: item.Comment}
+			expense, err := service.Create(ctx, actor, input)
+			if err != nil {
+				return "", state, fmt.Errorf("позиция %d: %w", position+1, err)
+			}
+			created = append(created, expense)
+			lines = append(lines, engine.describe(expense))
+		}
+		state.Context.Shown = created
+		state.Context.LastExpense = &created[len(created)-1]
+		reply = strings.Join(lines, "\n")
 	case "create_expense":
 		if action.Amount == nil || action.Category == nil || action.SpentAt == nil {
 			return "", state, fmt.Errorf("%w: нужны сумма, категория и дата", expenses.ErrInvalid)

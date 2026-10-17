@@ -10,7 +10,11 @@ export type Expense = {
 }
 export type ExpenseInput = Omit<Expense, 'id'>
 export type Page = { items: Expense[]; total: number }
-export type Summary = { amount: string; count: number; categories: { category: string; amount: string; count: number }[] }
+export type Summary = {
+  amount: string
+  count: number
+  categories: { category: string; amount: string; count: number }[]
+}
 export type Settings = { currency: string; timezone: string; today: string }
 export type Filters = { user_id: string; from: string; to: string; category: string }
 
@@ -29,7 +33,9 @@ export async function api<Result>(path: string, options?: RequestInit): Promise<
 
 export function query(filters: Filters, offset = 0): string {
   const parameters = new URLSearchParams({ limit: '20', offset: String(offset) })
-  Object.entries(filters).forEach(([key, value]) => { if (value) parameters.set(key, value) })
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) parameters.set(key, value)
+  })
   return parameters.toString()
 }
 

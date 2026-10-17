@@ -4,8 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix --max-warnings=0",
+    "format": "prettier --ignore-path ../.prettierignore --write . \"../scripts/*.mjs\" ../.prettierrc.json \"../.github/workflows/*.yml\"",
+    "format:check": "prettier --ignore-path ../.prettierignore --check . \"../scripts/*.mjs\" ../.prettierrc.json \"../.github/workflows/*.yml\"",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -13,10 +18,17 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.1.4",
+    "eslint": "10.13.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "16.5.0",
+    "prettier": "3.9.10",
     "typescript": "5.9.3",
+    "typescript-eslint": "8.71.2",
     "vite": "7.3.1"
   }
 }
