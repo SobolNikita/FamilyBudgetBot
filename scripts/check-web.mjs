@@ -126,7 +126,13 @@ try {
     }
     throw new Error('Timed out: ' + expression)
   }
+  await command('Page.enable')
   const ready = `document.querySelector('.pagination') && !document.querySelector('.loader')`
+  async function reloadPage() {
+    await evaluate('window.__reloadMarker = true')
+    await command('Page.reload')
+    await wait(`window.__reloadMarker !== true && document.readyState === 'complete'`)
+  }
   async function checkJumpLayout(name) {
     assert.equal(
       await evaluate(`getComputedStyle(document.querySelector('.page-jump label')).flexDirection`),
@@ -157,11 +163,94 @@ try {
   await wait(ready)
   const snapshot = `({ values: Array.from(document.querySelectorAll('.filters select,.filters input')).map(element=>element.value), page: document.querySelector('.pagination').textContent, search: location.search })`
   const before = await evaluate(snapshot)
+  assert.equal(
+    await evaluate(
+      `document.documentElement.dataset.theme === (localStorage.getItem('family-budget-theme') === 'dark' ? 'dark' : 'light')`,
+    ),
+    true,
+  )
+  if (process.env.EXPECT_SAVED_THEME) {
+    assert.equal(
+      await evaluate(`document.documentElement.dataset.theme`),
+      process.env.EXPECT_SAVED_THEME,
+    )
+  }
+  async function chooseTheme(theme) {
+    await evaluate(
+      `(() => { const select = document.querySelector('.theme-picker select'); select.value = ${JSON.stringify(theme)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+    )
+    await wait(`document.documentElement.dataset.theme === ${JSON.stringify(theme)}`)
+  }
+  await chooseTheme('dark')
+  assert.equal(await evaluate(`localStorage.getItem('family-budget-theme')`), 'dark')
+  await command('Network.enable')
+  await command('Network.setBlockedURLs', { urls: ['*/assets/*.js'] })
+  await reloadPage()
+  await wait(
+    `document.documentElement.dataset.theme === 'dark' && !document.querySelector('.theme-picker')`,
+  )
+  await command('Network.setBlockedURLs', { urls: [] })
+  await reloadPage()
+  await wait(ready)
+  assert.equal(await evaluate(`document.querySelector('.theme-picker select').value`), 'dark')
+  for (const width of [320, 390, 1440]) {
+    await command('Emulation.setDeviceMetricsOverride', {
+      width,
+      height: 844,
+      deviceScaleFactor: 1,
+      mobile: width <= 700,
+    })
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true)
+    assert.equal(
+      await evaluate(`getComputedStyle(document.querySelector('.expenses-panel')).backgroundColor`),
+      'rgb(30, 41, 35)',
+    )
+    await evaluate('window.scrollTo(0, 0)')
+    const screenshot = await command('Page.captureScreenshot', { format: 'png' })
+    await writeFile(resolve(`.cache/dark-${width}.png`), Buffer.from(screenshot.data, 'base64'))
+    await evaluate(`document.querySelector('.heading .primary').click()`)
+    await wait(`!!document.querySelector('dialog[open]')`)
+    assert.equal(
+      await evaluate(`getComputedStyle(document.querySelector('dialog')).backgroundColor`),
+      'rgb(30, 41, 35)',
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth`,
+      ),
+      true,
+    )
+    await evaluate(`document.querySelector('.modal-header button').click()`)
+  }
+  await command('Emulation.clearDeviceMetricsOverride')
+  const blockedStorage = await command('Page.addScriptToEvaluateOnNewDocument', {
+    source: `Storage.prototype.setItem = function() { throw new Error('Storage unavailable') }`,
+  })
+  await reloadPage()
+  await wait(ready)
+  await chooseTheme('light')
+  assert.equal(await evaluate(`!!document.querySelector('.theme-notice')`), true)
+  assert.equal(await evaluate(`localStorage.getItem('family-budget-theme')`), 'dark')
+  await command('Page.removeScriptToEvaluateOnNewDocument', {
+    identifier: blockedStorage.identifier,
+  })
+  await reloadPage()
+  await wait(ready)
+  await chooseTheme('light')
+  await reloadPage()
+  await wait(ready)
+  assert.equal(await evaluate(`document.documentElement.dataset.theme`), 'light')
+  await evaluate(
+    `localStorage.setItem('family-budget-theme', 'dark'); window.dispatchEvent(new StorageEvent('storage', { key: 'family-budget-theme' }))`,
+  )
+  await wait(`document.querySelector('.theme-picker select').value === 'dark'`)
+  await chooseTheme('light')
+  assert.deepEqual(await evaluate(snapshot), before)
   assert.deepEqual(before.values, ['111', 'еда', '2026-09-01', '2026-09-30'])
   assert.match(before.page, /21–40/)
   await checkJumpLayout('desktop')
   requests.length = 0
-  await command('Page.reload')
+  await reloadPage()
   await wait(ready)
   assert.deepEqual(await evaluate(snapshot), before)
   assert.ok(requests.some((request) => request.startsWith('/api/expenses?')))
@@ -198,7 +287,7 @@ try {
   await wait(`${ready} && new URLSearchParams(location.search).get('offset')==='280'`)
   assert.equal(await evaluate(`document.querySelector('[aria-current="page"]').textContent`), '15')
   assert.deepEqual((await evaluate(snapshot)).values, before.values)
-  await command('Page.reload')
+  await reloadPage()
   await wait(`${ready} && document.querySelector('.page-jump input').value==='15'`)
   assert.equal(await evaluate(`document.querySelector('[aria-current="page"]').textContent`), '15')
   await evaluate('history.back()')
@@ -239,7 +328,7 @@ try {
         !new URL(request, 'http://localhost').searchParams.has('user_id'),
     ),
   )
-  await command('Page.reload')
+  await reloadPage()
   await wait(ready)
   assert.deepEqual((await evaluate(snapshot)).values, ['', 'еда', '2026-09-01', '2026-09-30'])
   await command('Emulation.setDeviceMetricsOverride', {
@@ -276,7 +365,7 @@ try {
   await command('Emulation.clearDeviceMetricsOverride')
   await evaluate(`document.querySelector('.reset-button').click()`)
   await wait(`${ready} && document.querySelector('.filters select').value===''`)
-  await command('Page.reload')
+  await reloadPage()
   await wait(ready)
   assert.deepEqual((await evaluate(snapshot)).values, ['', '', '', ''])
   await evaluate(`document.querySelector('[aria-label="Следующая страница"]').click()`)
@@ -438,6 +527,7 @@ try {
   console.log(
     'PASS: 320–1440px layouts, touch targets, dialogs, long content, pagination, URL/history, filters and empty results',
   )
+  await chooseTheme('dark')
   await command('Browser.close')
 } finally {
   socket?.close()
