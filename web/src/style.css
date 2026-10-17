@@ -1316,3 +1316,9 @@ progress::-moz-progress-bar {
     flex-basis: 100%;
   }
 }
+fieldset.form-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
