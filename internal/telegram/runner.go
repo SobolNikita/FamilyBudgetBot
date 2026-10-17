@@ -181,6 +181,9 @@ func (runner Runner) process(ctx context.Context, repo storage.Repository, updat
 			return rollbackErr
 		}
 		reply = "Не выполнено: " + err.Error()
+		if prepared.Action.Name == "create_expenses" {
+			reply += ". Ни один расход из сообщения не сохранён. Исправьте список и пришлите его целиком."
+		}
 		nextState = bot.State{}
 	}
 	if err := txRepo.Complete(ctx, update.ID, update.UserID, reply, nextState); err != nil {

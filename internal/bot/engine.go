@@ -85,6 +85,24 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			return "", state, fmt.Errorf("%w: не удалось сформулировать уточнение; попробуйте ещё раз", expenses.ErrInvalid)
 		}
 		reply = action.Question
+	case "create_expenses":
+		if len(action.Expenses) == 0 || len(action.Expenses) > llm.MaxExpensesPerMessage {
+			return "", state, fmt.Errorf("%w: пришлите от 1 до %d расходов в одном сообщении", expenses.ErrInvalid, llm.MaxExpensesPerMessage)
+		}
+		created := make([]expenses.Expense, 0, len(action.Expenses))
+		lines := []string{fmt.Sprintf("Добавлено расходов: %d.", len(action.Expenses))}
+		for position, item := range action.Expenses {
+			input := expenses.Input{Amount: item.Amount, Category: item.Category, SpentAt: item.SpentAt, Comment: item.Comment}
+			expense, err := service.Create(ctx, actor, input)
+			if err != nil {
+				return "", state, fmt.Errorf("позиция %d: %w", position+1, err)
+			}
+			created = append(created, expense)
+			lines = append(lines, engine.describe(expense))
+		}
+		state.Context.Shown = created
+		state.Context.LastExpense = &created[len(created)-1]
+		reply = strings.Join(lines, "\n")
 	case "create_expense":
 		if action.Amount == nil || action.Category == nil || action.SpentAt == nil {
 			return "", state, fmt.Errorf("%w: нужны сумма, категория и дата", expenses.ErrInvalid)
