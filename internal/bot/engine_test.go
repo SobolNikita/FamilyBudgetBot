@@ -16,7 +16,7 @@ type memoryRepo struct {
 }
 
 func (repo *memoryRepo) Get(_ context.Context, actor, id int64) (expenses.Expense, error) {
-	if repo.deleted || id != repo.item.ID || (actor != 0 && actor != repo.item.UserID) {
+	if repo.deleted || id != repo.item.ID || (actor != expenses.FamilyActor && actor != repo.item.UserID) {
 		return expenses.Expense{}, expenses.ErrNotFound
 	}
 	return repo.item, nil

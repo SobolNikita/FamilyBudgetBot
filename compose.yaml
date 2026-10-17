@@ -37,6 +37,14 @@ services:
 
   app:
     <<: *app
+    stop_grace_period: 25s
+    mem_limit: 512m
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:

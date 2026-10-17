@@ -40,6 +40,7 @@ func TestPublicAPIValidationAndConflicts(t *testing.T) {
 	}{
 		{"POST", "/api/expenses", `{"user_id":"111","amount":"12,50","category":"еда","spent_at":"2026-10-16"}`, 201},
 		{"POST", "/api/expenses", `{"user_id":"111","amount":"-5","category":"еда","spent_at":"2026-10-16"}`, 400},
+		{"POST", "/api/expenses", `{"user_id":"111","amount":"5","category":"еда","spent_at":"2026-10-16","comment":"bad\u0000text"}`, 400},
 		{"POST", "/api/expenses", `{"user_id":"111","amount":"12.00","category":"еда","spent_at":"2026-10-16","extra":true}`, 400},
 		{"POST", "/api/expenses", `{} {}`, 400},
 		{"PUT", "/api/expenses/1", `{"user_id":"111","amount":"10","category":"еда","spent_at":"2026-10-16","version":1}`, 409},
@@ -51,6 +52,7 @@ func TestPublicAPIValidationAndConflicts(t *testing.T) {
 	} {
 		request := httptest.NewRequest(example.method, example.path, strings.NewReader(example.body))
 		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Idempotency-Key", "test-request-00000001")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != example.status {

@@ -8,30 +8,15 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"familyexpenses/internal/dialog"
 	"familyexpenses/internal/expenses"
 	"familyexpenses/internal/llm"
 )
 
-type Turn struct {
-	Text  string `json:"text"`
-	Reply string `json:"reply"`
-}
-
-type Conversation struct {
-	LastExpense *expenses.Expense  `json:"last_expense,omitempty"`
-	Shown       []expenses.Expense `json:"shown,omitempty"`
-	Turns       []Turn             `json:"turns,omitempty"`
-}
-
-type Pending struct {
-	ID      int64 `json:"id,string"`
-	Version int   `json:"version"`
-}
-
-type State struct {
-	Context Conversation
-	Pending *Pending
-}
+type Turn = dialog.Turn
+type Conversation = dialog.Conversation
+type Pending = dialog.Pending
+type State = dialog.State
 
 type Prepared struct {
 	Action   llm.Action
@@ -55,6 +40,9 @@ func Confirmation(text string) string {
 }
 
 func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor int64, prepared Prepared) (string, State, error) {
+	if actor <= 0 {
+		return "", prepared.State, fmt.Errorf("%w: Telegram требует положительный ID участника", expenses.ErrInvalid)
+	}
 	state := prepared.State
 	action := prepared.Action
 	var reply string
@@ -177,6 +165,12 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			return "", state, err
 		}
 		state.Context.Shown = page.Items
+		for _, item := range page.Items {
+			if state.Context.LastExpense != nil && state.Context.LastExpense.ID == item.ID {
+				fresh := item
+				state.Context.LastExpense = &fresh
+			}
+		}
 		if page.Total == 0 {
 			reply = "За выбранный период расходов нет."
 		} else {
