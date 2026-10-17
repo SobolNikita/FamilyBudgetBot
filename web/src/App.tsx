@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, money, query, type Expense, type ExpenseInput, type Filters, type Page, type Settings, type Summary, type User } from './api'
+import { readView, viewURL, type ViewState } from './viewState'
 
 const emptyFilters: Filters = { user_id: '', from: '', to: '', category: '' }
 const symbols: Record<string, string> = { еда: '◒', транспорт: '↗', жильё: '⌂', развлечения: '✳', здоровье: '+', покупки: '◇', другое: '⋯' }
+
+function saveView(view: ViewState, replace = false) {
+  const url = viewURL(window.location.href, view)
+  if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history[replace ? 'replaceState' : 'pushState'](window.history.state, '', url)
+  }
+}
 
 export default function App() {
   const [users, setUsers] = useState<User[]>([])
@@ -28,11 +36,24 @@ export default function App() {
       api<string[]>('/categories', { signal: controller.signal }),
       api<Settings>('/config', { signal: controller.signal }),
     ]).then(([names, config]) => {
+      if (controller.signal.aborted) return
+      const view = readView(window.location.search, config.today, names)
+      setFilters(view.filters); setOffset(view.offset); saveView(view, true)
       setCategories(names); setSettings(config)
-      setFilters(current => current === emptyFilters ? { ...emptyFilters, from: `${config.today.slice(0, 7)}-01`, to: config.today } : current)
     }).catch(failure => { if (!controller.signal.aborted) { setError(failure.message); setLoading(false) } })
     return () => controller.abort()
   }, [revision, settings])
+
+  useEffect(() => {
+    if (!settings) return
+    function restore() {
+      const view = readView(window.location.search, settings!.today, categories)
+      setFilters(view.filters); setOffset(view.offset); saveView(view, true)
+      setEditing(null); setDeleting(null); setNotice('')
+    }
+    window.addEventListener('popstate', restore)
+    return () => window.removeEventListener('popstate', restore)
+  }, [settings, categories])
 
   useEffect(() => {
     if (!settings) return
@@ -43,7 +64,9 @@ export default function App() {
       api<Summary>(`/reports/summary?${query(filters)}`, { signal: controller.signal }),
       api<User[]>('/users', { signal: controller.signal }),
     ]).then(([expenses, totals, people]) => {
-      if (expenses.total > 0 && offset >= expenses.total) { setOffset(Math.floor((expenses.total - 1) / 20) * 20); return }
+      if (controller.signal.aborted) return
+      const lastOffset = expenses.total > 0 ? Math.floor((expenses.total - 1) / 20) * 20 : 0
+      if (offset > lastOffset) { changeView(filters, lastOffset, true); return }
       setPage(expenses); setSummary(totals); setUsers(people)
     }).catch(failure => { if (!controller.signal.aborted) setError(failure.message) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
@@ -51,7 +74,12 @@ export default function App() {
   }, [filters, offset, revision, settings])
 
   function filter(key: keyof Filters, value: string) {
-    setFilters(current => ({ ...current, [key]: value })); setOffset(0); setNotice('')
+    changeView({ ...filters, [key]: value }, 0); setNotice('')
+  }
+
+  function changeView(nextFilters: Filters, nextOffset: number, replace = false) {
+    setFilters(nextFilters); setOffset(nextOffset)
+    saveView({ filters: nextFilters, offset: nextOffset }, replace)
   }
 
   function saved() {
@@ -99,11 +127,11 @@ export default function App() {
         <div className="expenses-panel">
           <div className="section-title"><h2>История расходов</h2><button className="text-button" onClick={() => setRevision(current => current + 1)} disabled={loading}>↻ Обновить</button></div>
           <div className="filters">
-            <label>Участник<select value={filters.user_id} onChange={event => filter('user_id', event.target.value)}><option value="">Вся семья</option>{users.map(user => <option key={user.id} value={user.id}>{user.display_name}</option>)}</select></label>
+            <label>Участник<select value={filters.user_id} onChange={event => filter('user_id', event.target.value)}><option value="">Вся семья</option>{filters.user_id && !users.some(user => user.id === filters.user_id) && <option value={filters.user_id}>Участник #{filters.user_id}</option>}{users.map(user => <option key={user.id} value={user.id}>{user.display_name}</option>)}</select></label>
             <label>Категория<select value={filters.category} onChange={event => filter('category', event.target.value)}><option value="">Все категории</option>{categories.map(category => <option key={category}>{category}</option>)}</select></label>
             <label>С даты<input type="date" value={filters.from} max={filters.to || undefined} onChange={event => filter('from', event.target.value)} /></label>
             <label>По дату<input type="date" value={filters.to} min={filters.from || undefined} onChange={event => filter('to', event.target.value)} /></label>
-            <button className="reset-button" onClick={() => { setFilters({ ...emptyFilters }); setOffset(0) }}>Сбросить</button>
+            <button className="reset-button" onClick={() => changeView({ ...emptyFilters }, 0)}>Сбросить</button>
           </div>
           <div className="table-wrap" aria-busy={loading}>
             <table><thead><tr><th>Расход</th><th>Участник</th><th>Дата</th><th className="amount-cell">Сумма</th><th><span className="sr-only">Действия</span></th></tr></thead>
@@ -119,7 +147,7 @@ export default function App() {
             {!loading && !error && page.items.length === 0 && <div className="empty-state"><span className="empty-icon">◇</span><h3>Здесь пока тихо</h3><p>Добавьте первый расход или измените фильтры.</p><button className="secondary" disabled={!settings || !users.length} onClick={() => setEditing('new')}>Добавить расход</button></div>}
             {!loading && error && <div className="empty-state">Не удалось загрузить данные. Попробуйте ещё раз.</div>}
           </div>
-          <footer className="pagination"><span>{page.total ? `${offset + 1}–${Math.min(offset + 20, page.total)} из ${page.total}` : '0 записей'}</span><div><button disabled={loading || offset === 0} onClick={() => setOffset(current => Math.max(0, current - 20))}>← Назад</button><button disabled={loading || offset + 20 >= page.total} onClick={() => setOffset(current => current + 20)}>Далее →</button></div></footer>
+          <footer className="pagination"><span>{page.total ? `${offset + 1}–${Math.min(offset + 20, page.total)} из ${page.total}` : '0 записей'}</span><div><button disabled={loading || offset === 0} onClick={() => changeView(filters, Math.max(0, offset - 20))}>← Назад</button><button disabled={loading || offset + 20 >= page.total} onClick={() => changeView(filters, offset + 20)}>Далее →</button></div></footer>
         </div>
 
         <aside className="breakdown"><h2>По категориям</h2><p className="muted">За выбранный период</p><div className="breakdown-list">{!loading && summary.categories.map(category => <div className="breakdown-item" key={category.category}><div><span><i className={`category-dot category-${categories.indexOf(category.category)}`} />{category.category}</span><strong>{money(category.amount, currency)}</strong></div><progress max="100" value={summary.amount === '0' || summary.amount === '0.00' ? 0 : Number(category.amount) / Number(summary.amount) * 100} aria-label={`Доля категории ${category.category}`} /></div>)}{!loading && !summary.categories.length && <p className="muted">Распределение появится вместе с первыми расходами.</p>}{loading && <p className="muted">Загрузка…</p>}</div><div className="tip"><span>✦</span><p>Записывайте расходы сразу — даже кофе по пути домой.</p></div></aside>
