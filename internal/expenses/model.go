@@ -118,7 +118,7 @@ func ValidateFilter(filter Filter) (Filter, error) {
 		return filter, fmt.Errorf("%w: поиск содержит недопустимый символ", ErrInvalid)
 	}
 	if filter.UserID < 0 || filter.Offset < 0 || filter.Offset > 1000000 || filter.Limit < 0 || filter.Limit > 100 {
-		return filter, fmt.Errorf("%w: неверная пагинация или участник", ErrInvalid)
+		return filter, fmt.Errorf("%w: не удалось открыть выбранную страницу; обновите список расходов", ErrInvalid)
 	}
 	if filter.Limit == 0 {
 		filter.Limit = 25
@@ -161,7 +161,7 @@ func (service Service) validate(input Input, actor int64) (Input, error) {
 		return input, fmt.Errorf("%w: неизвестная категория", ErrInvalid)
 	}
 	if !validDate(input.SpentAt) {
-		return input, fmt.Errorf("%w: неверная дата расхода", ErrInvalid)
+		return input, fmt.Errorf("%w: проверьте дату расхода", ErrInvalid)
 	}
 	input.Comment = strings.TrimSpace(input.Comment)
 	if strings.ContainsRune(input.Comment, 0) || !utf8.ValidString(input.Comment) {
@@ -192,7 +192,7 @@ func (service Service) Update(ctx context.Context, actor, id int64, input Input)
 		return Expense{}, err
 	}
 	if input.Version < 1 || id <= 0 {
-		return Expense{}, fmt.Errorf("%w: необходимы ID и версия расхода", ErrInvalid)
+		return Expense{}, fmt.Errorf("%w: обновите список и выберите расход ещё раз", ErrInvalid)
 	}
 	return service.Repo.Update(ctx, actor, id, input)
 }
@@ -202,7 +202,7 @@ func (service Service) Delete(ctx context.Context, actor, id int64, version int)
 		return err
 	}
 	if id <= 0 || version < 1 {
-		return fmt.Errorf("%w: необходимы ID и версия расхода", ErrInvalid)
+		return fmt.Errorf("%w: обновите список и выберите расход ещё раз", ErrInvalid)
 	}
 	return service.Repo.Delete(ctx, actor, id, version)
 }

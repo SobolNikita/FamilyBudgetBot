@@ -32,7 +32,7 @@ func (p Processor) reportLLM(code string) {
 
 func (runner Processor) Process(ctx context.Context, repo storage.Repository, update storage.Update) error {
 	if !update.CreatedAt.IsZero() && time.Since(update.CreatedAt) > time.Hour {
-		return repo.FailProcessing(ctx, update.ID, "Сообщение слишком долго ожидало обработки. Расходы по нему не изменены. Пришлите запрос заново.", "queue_timeout")
+		return repo.FailProcessing(ctx, update.ID, "Не получилось ответить вовремя. Расходы не изменены. Если запрос ещё актуален, отправьте его снова.", "queue_timeout")
 	}
 	if handled, err := runner.Register(ctx, update); handled || err != nil {
 		return err
@@ -96,6 +96,19 @@ func (runner Processor) Process(ctx context.Context, repo storage.Repository, up
 		return err
 	}
 	txRepo := storage.Repository{DB: storage.TimedDB{DB: transaction}}
+	if prepared.Action.Name == "change_name" {
+		reply := bot.AccessDeniedReply
+		if prepared.Action.Subject == "self" {
+			if _, err := transaction.Exec(ctx, `UPDATE users SET pending_name='?',name_requested_at=COALESCE(name_requested_at,now()),updated_at=now() WHERE id=$1`, update.UserID); err != nil {
+				return err
+			}
+			reply = "Как вас называть? Напишите новое имя."
+		}
+		if err := txRepo.Complete(ctx, update.ID, update.UserID, reply, bot.State{}); err != nil {
+			return err
+		}
+		return transaction.Commit(ctx)
+	}
 	reply, nextState, err := runner.Engine.Apply(ctx, expenses.Service{Repo: txRepo}, update.UserID, prepared)
 	if err != nil {
 		if !errors.Is(err, expenses.ErrInvalid) && !errors.Is(err, expenses.ErrNotFound) && !errors.Is(err, expenses.ErrConflict) {
@@ -104,9 +117,9 @@ func (runner Processor) Process(ctx context.Context, repo storage.Repository, up
 		if _, rollbackErr := transaction.Exec(ctx, `ROLLBACK TO SAVEPOINT expense_action`); rollbackErr != nil {
 			return rollbackErr
 		}
-		reply = "Не выполнено: " + err.Error()
+		reply = expenses.UserMessage(err)
 		if prepared.Action.Name == "create_expenses" {
-			reply += ". Ни один расход из сообщения не сохранён. Исправьте список и пришлите его целиком."
+			reply += " Покупки из этого сообщения пока не записаны. Исправьте данные и отправьте весь список ещё раз."
 		}
 		nextState = bot.State{}
 	}

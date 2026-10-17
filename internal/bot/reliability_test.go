@@ -38,7 +38,7 @@ func TestRegistrationBurstRequiresExplicitConfirmation(t *testing.T) {
 	if canceled.DisplayName != "" {
 		t.Fatal("canceled name saved")
 	}
-	rename := Register(Registration{DisplayName: "Анна", NameRequested: true}, "/name")
+	rename := Register(Registration{DisplayName: "Анна", NameRequested: true}, "изменить имя")
 	candidate = Register(Registration{DisplayName: rename.DisplayName, NameRequested: true, PendingName: rename.PendingName}, "Анна-Мария")
 	confirmed := Register(Registration{DisplayName: candidate.DisplayName, NameRequested: true, PendingName: candidate.PendingName}, "да")
 	if confirmed.DisplayName != "Анна-Мария" {

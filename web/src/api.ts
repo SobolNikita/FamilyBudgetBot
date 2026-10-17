@@ -50,7 +50,7 @@ export async function api<Result>(
     if (!response.ok) {
       const body = await response.json().catch(() => ({}))
       throw new APIError(
-        body.error || `Не удалось выполнить запрос (${response.status})`,
+        body.error || 'Не получилось выполнить действие. Попробуйте немного позже.',
         response.status,
       )
     }
@@ -68,8 +68,8 @@ export async function api<Result>(
     }
     throw new APIError(
       controller.signal.aborted
-        ? 'Сервер не ответил вовремя. Результат изменения неизвестен; обновите данные или повторите ту же операцию.'
-        : 'Соединение прервано. Результат изменения неизвестен; обновите данные или повторите ту же операцию.',
+        ? 'Не удалось получить подтверждение. Проверьте список расходов перед новой попыткой.'
+        : 'Связь прервалась. Проверьте список расходов: изменение могло сохраниться.',
     )
   } finally {
     clearTimeout(timer)

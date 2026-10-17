@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const receiptText = "Сообщение принято. Обрабатываю запросы по очереди; результат появится здесь. Повторять сообщение не нужно."
+const receiptText = "Секунду, разбираюсь. Ответ появится здесь — повторять сообщение не нужно."
 
 func (runner Runner) deliver(ctx context.Context) {
 	repo := runner.repository()

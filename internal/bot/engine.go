@@ -27,7 +27,7 @@ type Prepared struct {
 
 type Engine struct{ Currency string }
 
-const AccessDeniedReply = "Доступ запрещён. В Telegram можно просматривать и изменять только свои расходы. Запросы к расходам других участников и общему семейному отчёту недоступны."
+const AccessDeniedReply = "Здесь можно посмотреть и изменить только свои расходы. Общие расходы семьи доступны в веб-панели."
 
 func Confirmation(text string) string {
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(text), ".! ")) {
@@ -61,7 +61,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			state.Pending = nil
 			reply = "Удаление отменено."
 		default:
-			reply = "Ожидаю подтверждение удаления: ответьте «да» или «нет»."
+			reply = "Удалить этот расход? Напишите «да» для удаления или «нет», чтобы его оставить."
 		}
 		return finish(prepared.Text, reply, state)
 	}
@@ -69,7 +69,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 	case "other", "family":
 		return finish(prepared.Text, AccessDeniedReply, state)
 	case "unclear":
-		return finish(prepared.Text, "Уточните, пожалуйста: речь о ваших расходах? В Telegram доступны только ваши записи.", state)
+		return finish(prepared.Text, "Вы хотите посмотреть свои расходы? Здесь я могу помочь с вашими записями, а общие расходы семьи доступны в веб-панели.", state)
 	case "self":
 	default:
 		return "", state, fmt.Errorf("%w: не удалось определить владельца расходов; уточните запрос", expenses.ErrInvalid)
@@ -179,7 +179,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 				lines = append(lines, engine.describe(expense))
 			}
 			if page.Total > action.Offset+len(page.Items) {
-				lines = append(lines, "Можно попросить следующую страницу.")
+				lines = append(lines, "Чтобы посмотреть остальные, напишите «покажи ещё».")
 			}
 			reply = strings.Join(lines, "\n")
 		}

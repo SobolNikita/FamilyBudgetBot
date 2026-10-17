@@ -91,7 +91,7 @@ func (server Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/expenses/{id}", server.delete)
 	mux.HandleFunc("GET /api/reports/summary", server.summary)
 	mux.HandleFunc("GET /api/", func(writer http.ResponseWriter, request *http.Request) {
-		writeJSON(writer, http.StatusNotFound, map[string]string{"error": "метод API не найден"})
+		writeJSON(writer, http.StatusNotFound, map[string]string{"error": "Эта возможность недоступна. Обновите страницу."})
 	})
 	mux.HandleFunc("GET /", server.static)
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -116,7 +116,7 @@ func (server Server) Handler() http.Handler {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				slog.Error("http panic", "path", request.URL.Path)
-				writeJSON(writer, 500, map[string]string{"error": "внутренняя ошибка сервера"})
+				writeJSON(writer, 500, map[string]string{"error": "Не получилось выполнить действие. Попробуйте немного позже."})
 			}
 		}()
 		mux.ServeHTTP(writer, request)
@@ -151,7 +151,7 @@ func (server Server) create(writer http.ResponseWriter, request *http.Request) {
 	}
 	input.IdempotencyKey = request.Header.Get("Idempotency-Key")
 	if !requestKeyPattern.MatchString(input.IdempotencyKey) {
-		respond(writer, nil, fmt.Errorf("%w: необходим Idempotency-Key (16–128 букв, цифр, - или _)", expenses.ErrInvalid))
+		respond(writer, nil, fmt.Errorf("%w: обновите страницу и попробуйте сохранить расход ещё раз", expenses.ErrInvalid))
 		return
 	}
 	expense, err := server.Service.Create(request.Context(), expenses.FamilyActor, input)
@@ -187,7 +187,7 @@ func (server Server) delete(writer http.ResponseWriter, request *http.Request) {
 	}
 	version, err := strconv.Atoi(request.URL.Query().Get("version"))
 	if err != nil {
-		respond(writer, nil, fmt.Errorf("%w: необходима версия расхода", expenses.ErrInvalid))
+		respond(writer, nil, fmt.Errorf("%w: обновите список и выберите расход ещё раз", expenses.ErrInvalid))
 		return
 	}
 	if err := server.Service.Delete(request.Context(), expenses.FamilyActor, id, version); err != nil {
@@ -200,7 +200,7 @@ func (server Server) delete(writer http.ResponseWriter, request *http.Request) {
 func parseID(request *http.Request) (int64, error) {
 	id, err := strconv.ParseInt(request.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		return 0, fmt.Errorf("%w: неверный ID", expenses.ErrInvalid)
+		return 0, fmt.Errorf("%w: обновите список и выберите расход ещё раз", expenses.ErrInvalid)
 	}
 	return id, nil
 }
@@ -212,7 +212,7 @@ func parseFilter(request *http.Request) (expenses.Filter, error) {
 		if raw := query.Get(name); raw != "" {
 			value, err := strconv.Atoi(raw)
 			if err != nil {
-				return filter, fmt.Errorf("%w: неверный %s", expenses.ErrInvalid, name)
+				return filter, fmt.Errorf("%w: не удалось открыть выбранную страницу; обновите список расходов", expenses.ErrInvalid)
 			}
 			*target = value
 		}
@@ -229,15 +229,15 @@ func parseFilter(request *http.Request) (expenses.Filter, error) {
 
 func decode(writer http.ResponseWriter, request *http.Request, target any) error {
 	if strings.Split(request.Header.Get("Content-Type"), ";")[0] != "application/json" {
-		return fmt.Errorf("%w: ожидается application/json", expenses.ErrInvalid)
+		return fmt.Errorf("%w: не удалось прочитать данные; обновите страницу и попробуйте ещё раз", expenses.ErrInvalid)
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("%w: неверный JSON", expenses.ErrInvalid)
+		return fmt.Errorf("%w: не удалось прочитать данные; обновите страницу и попробуйте ещё раз", expenses.ErrInvalid)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("%w: лишние данные JSON", expenses.ErrInvalid)
+		return fmt.Errorf("%w: не удалось прочитать данные; обновите страницу и попробуйте ещё раз", expenses.ErrInvalid)
 	}
 	return nil
 }
@@ -248,18 +248,18 @@ func respond(writer http.ResponseWriter, value any, err error) {
 		return
 	}
 	status := http.StatusInternalServerError
-	message := "внутренняя ошибка сервера"
+	message := "Не получилось выполнить действие. Попробуйте немного позже."
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		status, message = http.StatusGatewayTimeout, "Операция не завершилась вовремя. Обновите данные перед повтором."
 	case errors.Is(err, context.Canceled):
 		status, message = http.StatusRequestTimeout, "Запрос отменён."
 	case errors.Is(err, expenses.ErrInvalid):
-		status, message = http.StatusBadRequest, err.Error()
+		status, message = http.StatusBadRequest, expenses.UserMessage(err)
 	case errors.Is(err, expenses.ErrNotFound):
-		status, message = http.StatusNotFound, err.Error()
+		status, message = http.StatusNotFound, expenses.UserMessage(err)
 	case errors.Is(err, expenses.ErrConflict):
-		status, message = http.StatusConflict, err.Error()
+		status, message = http.StatusConflict, expenses.UserMessage(err)
 	default:
 		slog.Error("api operation failed", "error", err)
 	}
@@ -278,7 +278,7 @@ func (server Server) static(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if _, err := os.Stat(filepath.Join(server.WebDir, "index.html")); err != nil {
-		http.Error(writer, "Frontend is not built. Run npm run build in web/.", http.StatusServiceUnavailable)
+		http.Error(writer, "Панель временно недоступна. Попробуйте немного позже.", http.StatusServiceUnavailable)
 		return
 	}
 	if request.URL.Path == "/" {
