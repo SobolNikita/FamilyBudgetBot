@@ -16,7 +16,8 @@ h1, h2, h3, p { margin: 0; }
 .brand-icon { background: #285e48; border-radius: 14px; width: 47px; height: 47px; flex-shrink: 0; display: grid; place-items: center; color: white; line-height: 0; }
 .brand-icon svg { display: block; width: 72%; height: 72%; }
 .nav-caption { font-size: 10px; letter-spacing: 1.6px; color: #8d978e; margin: 48px 12px 15px; font-weight: 600; }
-.nav-active { background: #e8eee4; color: #355d43; display: flex; gap: 13px; align-items: center; padding: 15px; font-size: 14px; border-radius: 10px; font-weight: 600; }
+.nav-active { background: transparent; color: #67756b; display: flex; gap: 13px; align-items: center; padding: 15px; font-size: 14px; border-radius: 10px; font-weight: 600; text-align: left; width: 100%; }
+.nav-active:hover, .nav-active.selected { background: #e8eee4; color: #355d43; }
 .nav-active > span:first-child { font-size: 20px; }
 .nav-dot { margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: #4e7657; }
 .member { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 12px; background: transparent; color: #67756b; text-align: left; border-radius: 8px; font-size: 13px; overflow-wrap: anywhere; }
@@ -152,7 +153,8 @@ progress::-moz-progress-bar { background: #9bb18a; }
 
 @media (max-width: 700px) {
   .sidebar { padding: 16px; border-right: 0; }
-  .sidebar .nav-active { display: none; }
+  .sidebar .nav-active { display: flex; flex: 0 0 100%; min-height: 44px; font-size: 14px; }
+  .sidebar > .members-caption { display: block; flex: 0 0 100%; margin: 0; font-size: 11px; }
   .family-list .member { max-width: 240px; white-space: normal; font-size: 14px; min-height: 44px; }
   main { padding-inline: 14px; }
   .topbar { height: auto; min-height: 60px; flex-wrap: wrap; gap: 8px; padding-block: 12px; font-size: 12px; }
