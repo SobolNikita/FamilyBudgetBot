@@ -63,7 +63,9 @@ func run() error {
 	}()
 	botErrors := make(chan error, 1)
 	if settings.BotEnabled {
-		runner := telegram.Runner{Pool: pool, Client: telegram.New(settings.TelegramToken), Planner: llm.New(settings.LLMBaseURL, settings.LLMKey, settings.LLMModel), Engine: bot.Engine{Currency: settings.Currency}, Location: settings.Location}
+		planner := llm.New(settings.LLMBaseURL, settings.LLMKey, settings.LLMModel)
+		planner.Timeout = settings.LLMTimeout
+		runner := telegram.Runner{Pool: pool, Client: telegram.New(settings.TelegramToken), Planner: planner, Engine: bot.Engine{Currency: settings.Currency}, Location: settings.Location}
 		go func() { botErrors <- runner.Run(ctx) }()
 	} else {
 		slog.Info("Telegram bot disabled")

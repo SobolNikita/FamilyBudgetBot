@@ -47,7 +47,9 @@ func (runner Runner) Run(ctx context.Context) error {
 	defer cancel()
 	finished := make(chan struct{})
 	go func() { defer close(finished); runner.poll(ctx) }()
-	defer func() { cancel(); <-finished }()
+	deliveryFinished := make(chan struct{})
+	go func() { defer close(deliveryFinished); runner.deliver(ctx) }()
+	defer func() { cancel(); <-finished; <-deliveryFinished }()
 	repo := storage.Repository{DB: runner.Pool}
 	lastCleanup := time.Time{}
 	for ctx.Err() == nil {
@@ -75,18 +77,10 @@ func (runner Runner) Run(ctx context.Context) error {
 			}
 			continue
 		}
-		sending := update.Status == "processed"
-		if sending {
-			err = runner.Client.Send(ctx, update.ChatID, update.Reply)
-			if err == nil {
-				err = repo.MarkSent(ctx, update.ID)
-			}
-		} else {
-			err = runner.process(ctx, repo, update)
-		}
+		err = runner.process(ctx, repo, update)
 		if err != nil && ctx.Err() == nil {
-			slog.Warn("bot operation failed", "update_id", update.ID, "delivery", sending, "error", err)
-			if retryErr := repo.Retry(ctx, update, sending); retryErr != nil {
+			slog.Warn("bot processing failed", "update_id", update.ID, "code", "processing_failed")
+			if retryErr := repo.RetryProcessing(ctx, update); retryErr != nil {
 				slog.Error("queue retry scheduling failed")
 				if !pause(ctx, 3*time.Second) {
 					break
@@ -118,7 +112,7 @@ func (runner Runner) poll(ctx context.Context) {
 				if text == "" {
 					text = "[неподдерживаемый тип сообщения]"
 				}
-				if err := repo.Enqueue(ctx, storage.Update{ID: update.ID, UserID: message.From.ID, ChatID: message.Chat.ID, Text: text}); err != nil {
+				if err := repo.Enqueue(ctx, storage.Update{ID: update.ID, UserID: message.From.ID, ChatID: message.Chat.ID, MessageID: message.ID, Text: text}); err != nil {
 					slog.Error("Telegram update persistence failed")
 					pause(ctx, 3*time.Second)
 					break
@@ -130,6 +124,9 @@ func (runner Runner) poll(ctx context.Context) {
 }
 
 func (runner Runner) process(ctx context.Context, repo storage.Repository, update storage.Update) error {
+	if !update.CreatedAt.IsZero() && time.Since(update.CreatedAt) > 2*time.Minute {
+		return repo.FailProcessing(ctx, update.ID, "Сообщение слишком долго ожидало обработки. Расходы по нему не изменены. Пришлите запрос заново.", "queue_timeout")
+	}
 	if handled, err := runner.register(ctx, update); handled || err != nil {
 		return err
 	}
@@ -146,10 +143,17 @@ func (runner Runner) process(ctx context.Context, repo storage.Repository, updat
 		if update.Text == "/start" || update.Text == "[неподдерживаемый тип сообщения]" || utf8.RuneCountInString(update.Text) > 2000 {
 			prepared.Action = llm.Action{Name: "ask_question", Question: "Пришлите короткое текстовое сообщение: «кофе 350», «покажи расходы за неделю», «последнее было 450» или «удали такси»."}
 		} else {
+			started := time.Now()
 			prepared.Action, err = runner.Planner.Plan(ctx, llm.Request{Text: update.Text, Today: time.Now().In(runner.Location).Format(time.DateOnly), Currency: runner.Engine.Currency, Context: state.Context, RecentExpenses: recent})
 			if err != nil {
-				return err
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				failure := llm.Diagnose(err)
+				slog.Warn("LLM request failed", "update_id", update.ID, "code", failure.Kind, "http_status", failure.Status, "duration_ms", time.Since(started).Milliseconds())
+				return repo.FailProcessing(ctx, update.ID, failure.UserMessage(), "llm_"+failure.Kind)
 			}
+			slog.Info("LLM request completed", "update_id", update.ID, "duration_ms", time.Since(started).Milliseconds())
 		}
 	}
 	transaction, err := runner.Pool.Begin(ctx)

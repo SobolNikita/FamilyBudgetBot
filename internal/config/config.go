@@ -21,6 +21,7 @@ type Config struct {
 	LLMBaseURL    string
 	LLMKey        string
 	LLMModel      string
+	LLMTimeout    time.Duration
 }
 
 func Load() (Config, error) {
@@ -33,6 +34,10 @@ func Load() (Config, error) {
 		return config, errors.New("invalid FAMILY_TIMEZONE")
 	}
 	config.Location = location
+	config.LLMTimeout, err = time.ParseDuration(value("LLM_TIMEOUT", "20s"))
+	if err != nil || config.LLMTimeout < time.Second || config.LLMTimeout > 2*time.Minute {
+		return config, errors.New("LLM_TIMEOUT must be a duration between 1s and 2m")
+	}
 	if !regexp.MustCompile(`^[A-Z]{3}$`).MatchString(config.Currency) {
 		return config, errors.New("FAMILY_CURRENCY must be an uppercase ISO currency code")
 	}

@@ -12,14 +12,17 @@ import (
 )
 
 type Update struct {
-	ID           int64
-	UserID       int64
-	ChatID       int64
-	Text         string
-	Status       string
-	Attempts     int
-	SendAttempts int
-	Reply        string
+	ID             int64
+	UserID         int64
+	ChatID         int64
+	Text           string
+	Status         string
+	Attempts       int
+	SendAttempts   int
+	Reply          string
+	MessageID      int64
+	ReplyMessageID int64
+	CreatedAt      time.Time
 }
 
 func (repo Repository) Enqueue(ctx context.Context, update Update) error {
@@ -27,14 +30,34 @@ func (repo Repository) Enqueue(ctx context.Context, update Update) error {
 	if err != nil {
 		return err
 	}
-	_, err = repo.DB.Exec(ctx, `WITH participant AS (INSERT INTO users (id, display_name) VALUES ($2, '') ON CONFLICT (id) DO NOTHING) INSERT INTO telegram_updates (update_id, user_id, chat_id, payload) VALUES ($1,$2,$3,$4) ON CONFLICT (update_id) DO NOTHING`, update.ID, update.UserID, update.ChatID, payload)
+	_, err = repo.DB.Exec(ctx, `WITH participant AS (INSERT INTO users (id, display_name) VALUES ($2, '') ON CONFLICT (id) DO NOTHING) INSERT INTO telegram_updates (update_id, user_id, chat_id, payload, message_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (update_id) DO NOTHING`, update.ID, update.UserID, update.ChatID, payload, update.MessageID)
 	return err
 }
 
 func (repo Repository) NextUpdate(ctx context.Context) (Update, error) {
+	return scanUpdate(repo.DB.QueryRow(ctx, `SELECT `+updateColumns+` FROM telegram_updates current WHERE status='pending' AND next_attempt_at <= now() AND NOT EXISTS (SELECT 1 FROM telegram_updates earlier WHERE earlier.user_id=current.user_id AND earlier.update_id<current.update_id AND earlier.status='pending') ORDER BY update_id LIMIT 1`))
+}
+
+const updateColumns = `update_id, user_id, chat_id, payload->>'text', status, attempts, send_attempts, reply_text, message_id, reply_message_id, created_at`
+
+func scanUpdate(row pgx.Row) (Update, error) {
 	var update Update
-	err := repo.DB.QueryRow(ctx, `SELECT update_id, user_id, chat_id, payload->>'text', status, attempts, send_attempts, reply_text FROM telegram_updates current WHERE status IN ('pending','processed') AND next_attempt_at <= now() AND NOT EXISTS (SELECT 1 FROM telegram_updates earlier WHERE earlier.user_id=current.user_id AND earlier.update_id<current.update_id AND earlier.status IN ('pending','processed')) ORDER BY update_id LIMIT 1`).Scan(&update.ID, &update.UserID, &update.ChatID, &update.Text, &update.Status, &update.Attempts, &update.SendAttempts, &update.Reply)
+	err := row.Scan(&update.ID, &update.UserID, &update.ChatID, &update.Text, &update.Status, &update.Attempts, &update.SendAttempts, &update.Reply, &update.MessageID, &update.ReplyMessageID, &update.CreatedAt)
 	return update, err
+}
+
+func (repo Repository) NextDelivery(ctx context.Context) (Update, error) {
+	return scanUpdate(repo.DB.QueryRow(ctx, `SELECT `+updateColumns+` FROM telegram_updates WHERE (status='processed' OR (status='pending' AND reply_message_id=0)) AND delivery_next_attempt_at <= now() ORDER BY (reply_message_id=0) DESC, update_id LIMIT 1`))
+}
+
+func (repo Repository) Acknowledge(ctx context.Context, updateID, messageID int64) error {
+	_, err := repo.DB.Exec(ctx, `UPDATE telegram_updates SET reply_message_id=$2,send_attempts=0,delivery_error='' WHERE update_id=$1`, updateID, messageID)
+	return err
+}
+
+func (repo Repository) FailProcessing(ctx context.Context, updateID int64, reply, code string) error {
+	_, err := repo.DB.Exec(ctx, `UPDATE telegram_updates SET status='processed',reply_text=$2,last_error=$3,processed_at=now() WHERE update_id=$1 AND status='pending'`, updateID, reply, code)
+	return err
 }
 
 func (repo Repository) State(ctx context.Context, userID int64) (bot.State, error) {
@@ -95,18 +118,23 @@ func (repo Repository) Complete(ctx context.Context, updateID, userID int64, rep
 	return err
 }
 
-func (repo Repository) Retry(ctx context.Context, update Update, sending bool) error {
-	delay := time.Duration(1<<min(update.Attempts+update.SendAttempts+1, 6)) * time.Second
-	if sending {
-		_, err := repo.DB.Exec(ctx, `UPDATE telegram_updates SET send_attempts=send_attempts+1,status=CASE WHEN send_attempts+1>=5 THEN 'failed' ELSE status END,next_attempt_at=$2,last_error='telegram_delivery_failed' WHERE update_id=$1 AND status='processed'`, update.ID, time.Now().Add(delay))
-		return err
-	}
+func (repo Repository) RetryProcessing(ctx context.Context, update Update) error {
+	delay := time.Duration(1<<min(update.Attempts+1, 6)) * time.Second
 	_, err := repo.DB.Exec(ctx, `UPDATE telegram_updates SET attempts=attempts+1,status=CASE WHEN attempts+1>=3 THEN 'processed' ELSE status END,reply_text=CASE WHEN attempts+1>=3 THEN 'Не удалось обработать сообщение. Попробуйте повторить запрос позже.' ELSE reply_text END,processed_at=CASE WHEN attempts+1>=3 THEN now() ELSE processed_at END,next_attempt_at=$2,last_error='processing_failed' WHERE update_id=$1 AND status='pending'`, update.ID, time.Now().Add(delay))
 	return err
 }
 
+func (repo Repository) RetryDelivery(ctx context.Context, update Update, retryAfter time.Duration, code string) error {
+	delay := time.Duration(1<<min(update.SendAttempts+1, 6)) * time.Second
+	if retryAfter > delay {
+		delay = retryAfter
+	}
+	_, err := repo.DB.Exec(ctx, `UPDATE telegram_updates SET send_attempts=LEAST(send_attempts+1,1000000),delivery_next_attempt_at=$2,delivery_error=$3 WHERE update_id=$1 AND status IN ('pending','processed')`, update.ID, time.Now().Add(delay), code)
+	return err
+}
+
 func (repo Repository) MarkSent(ctx context.Context, updateID int64) error {
-	_, err := repo.DB.Exec(ctx, `UPDATE telegram_updates SET status='sent',sent_at=now(),last_error='' WHERE update_id=$1`, updateID)
+	_, err := repo.DB.Exec(ctx, `UPDATE telegram_updates SET status='sent',sent_at=now(),delivery_error='' WHERE update_id=$1 AND status='processed'`, updateID)
 	return err
 }
 
@@ -114,6 +142,6 @@ func (repo Repository) Cleanup(ctx context.Context) error {
 	if _, err := repo.DB.Exec(ctx, `DELETE FROM dialog_states WHERE expires_at<now()`); err != nil {
 		return err
 	}
-	_, err := repo.DB.Exec(ctx, `DELETE FROM telegram_updates WHERE status IN ('sent','failed') AND created_at<now()-interval '7 days'`)
+	_, err := repo.DB.Exec(ctx, `DELETE FROM telegram_updates WHERE status='sent' AND sent_at<now()-interval '7 days'`)
 	return err
 }
