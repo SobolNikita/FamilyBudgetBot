@@ -74,6 +74,7 @@ export default function App() {
   }, [filters, offset, revision, settings])
 
   function filter(key: keyof Filters, value: string) {
+    if (filters[key] === value) return
     changeView({ ...filters, [key]: value }, 0); setNotice('')
   }
 
@@ -104,7 +105,11 @@ export default function App() {
       <a className="brand" href="/" aria-label="Семейный бюджет, главная"><span className="brand-icon">⌂</span><span>Семейный<br /><strong>бюджет</strong></span></a>
       <div className="nav-caption">ВАШЕ ПРОСТРАНСТВО</div>
       <div className="nav-active"><span>▦</span> Расходы семьи <span className="nav-dot" /></div>
-      <div className="family-list"><div className="nav-caption">УЧАСТНИКИ</div>{users.map((user, index) => <button className={`member ${filters.user_id === user.id ? 'selected' : ''}`} key={user.id} onClick={() => filter('user_id', filters.user_id === user.id ? '' : user.id)}><span className={`avatar tone-${index % 3}`}>{user.display_name.slice(0, 1)}</span>{user.display_name}</button>)}</div>
+      <nav className="family-list" aria-label="Просмотр расходов">
+        <div className="nav-caption">УЧАСТНИКИ</div>
+        <button className={`member ${filters.user_id === '' ? 'selected' : ''}`} aria-pressed={filters.user_id === ''} onClick={() => filter('user_id', '')}><span className="avatar tone-0" aria-hidden="true">▦</span>Общие траты</button>
+        {users.map((user, index) => <button className={`member ${filters.user_id === user.id ? 'selected' : ''}`} aria-pressed={filters.user_id === user.id} key={user.id} onClick={() => filter('user_id', user.id)}><span className={`avatar tone-${index % 3}`} aria-hidden="true">{user.display_name.slice(0, 1)}</span>{user.display_name}</button>)}
+      </nav>
       <div className="sidebar-note"><span>Маленькие расходы.<br />Большая ясность.</span><p>Все семейные траты<br />в одном месте.</p></div>
       <div className="sidebar-footer">СЕМЬЯ · ОБЩИЙ БЮДЖЕТ</div>
     </aside>

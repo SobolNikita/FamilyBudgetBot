@@ -35,6 +35,15 @@ test('partial links use the default period without losing the selected member', 
   assert.equal(view.filters.to, today)
 })
 
+test('shared expenses keep period and category while removing member and resetting pagination', () => {
+  const member = readView('?user_id=111&from=2026-09-01&to=2026-09-30&category=еда&offset=40', today, categories)
+  const shared = { filters: { ...member.filters, user_id: '' }, offset: 0 }
+  const url = new URL(viewURL('https://family.test/?user_id=111&offset=40', shared), 'https://family.test')
+  assert.equal(url.searchParams.has('user_id'), false)
+  assert.equal(url.searchParams.has('offset'), false)
+  assert.deepEqual(readView(url.search, today, categories), shared)
+})
+
 test('URLs preserve the path, fragment and unrelated query parameters', () => {
   const view = readView('?user_id=111', today, categories)
   const url = new URL(viewURL('https://family.test/budget?source=bookmark#expenses', view), 'https://family.test')
