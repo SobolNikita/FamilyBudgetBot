@@ -5,7 +5,9 @@ export type ViewState = { filters: Filters; offset: number }
 function date(value: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return ''
   const parsed = new Date(`${value}T00:00:00Z`)
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : ''
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+    ? value
+    : ''
 }
 
 export function readView(search: string, today: string, categories: readonly string[]): ViewState {
@@ -14,12 +16,23 @@ export function readView(search: string, today: string, categories: readonly str
   const userID = /^\d{1,19}$/.test(rawUser) ? BigInt(rawUser) : 0n
   let from = date(parameters.get('from') ?? `${today.slice(0, 7)}-01`)
   let to = date(parameters.get('to') ?? today)
-  if (from && to && from > to) { from = ''; to = '' }
+  if (from && to && from > to) {
+    from = ''
+    to = ''
+  }
   const category = parameters.get('category') || ''
   const rawOffset = parameters.get('offset') || '0'
-  const offset = /^\d{1,7}$/.test(rawOffset) && Number(rawOffset) <= 1000000 ? Math.floor(Number(rawOffset) / 20) * 20 : 0
+  const offset =
+    /^\d{1,7}$/.test(rawOffset) && Number(rawOffset) <= 1000000
+      ? Math.floor(Number(rawOffset) / 20) * 20
+      : 0
   return {
-    filters: { user_id: userID > 0n && userID <= 9223372036854775807n ? String(userID) : '', from, to, category: categories.includes(category) ? category : '' },
+    filters: {
+      user_id: userID > 0n && userID <= 9223372036854775807n ? String(userID) : '',
+      from,
+      to,
+      category: categories.includes(category) ? category : '',
+    },
     offset,
   }
 }

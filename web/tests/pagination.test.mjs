@@ -26,7 +26,11 @@ test('long lists retain first, last and neighboring pages', () => {
       assert.ok(pages.length <= 7)
       assert.ok(pages.includes(current))
       assert.equal(new Set(pages).size, pages.length)
-      assert.ok(pages.filter(page => typeof page === 'number').every(page => page >= 1 && page <= count))
+      assert.ok(
+        pages
+          .filter((page) => typeof page === 'number')
+          .every((page) => page >= 1 && page <= count),
+      )
     }
   }
 })
@@ -39,7 +43,18 @@ test('page selection produces the corresponding offset', () => {
 })
 
 test('invalid page selections cannot navigate', () => {
-  for (const value of ['', '0', '-1', '21', '1.5', '1e1', 'NaN', 'Infinity', 'text', '9007199254740992']) {
+  for (const value of [
+    '',
+    '0',
+    '-1',
+    '21',
+    '1.5',
+    '1e1',
+    'NaN',
+    'Infinity',
+    'text',
+    '9007199254740992',
+  ]) {
     assert.equal(pageOffset(value, 20), null, value)
   }
   assert.equal(pageOffset('50002', 50002), null)
