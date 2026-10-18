@@ -18,7 +18,7 @@ func TestRefreshListReplacesStaleLastExpense(t *testing.T) {
 	fresh.Version = 2
 	repo := listRepo{&memoryRepo{item: fresh}}
 	service := expenses.Service{Repo: repo}
-	engine := Engine{Currency: "BYN"}
+	engine := Engine{Currency: "RUB"}
 	_, state, err := engine.Apply(context.Background(), service, 111, Prepared{State: State{Context: Conversation{LastExpense: &old}}, Action: llm.Action{Name: "list_expenses", Subject: "self"}})
 	if err != nil {
 		t.Fatal(err)

@@ -46,7 +46,7 @@ func TestBatchCreationAtomicityAndReplay(t *testing.T) {
 			if err := repo.Enqueue(ctx, update); err != nil {
 				t.Fatal(err)
 			}
-			runner := Runner{Pool: pool, Planner: planner, Engine: bot.Engine{Currency: "BYN"}, Location: time.UTC}
+			runner := Runner{Pool: pool, Planner: planner, Engine: bot.Engine{Currency: "RUB"}, Location: time.UTC}
 			for range 2 {
 				if err := runner.process(ctx, repo, update); err != nil {
 					t.Fatal(err)
