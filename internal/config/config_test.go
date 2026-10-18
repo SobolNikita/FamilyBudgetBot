@@ -7,10 +7,11 @@ import (
 
 func TestConfiguration(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("FAMILY_TIMEZONE", "Europe/Minsk")
+	t.Setenv("FAMILY_TIMEZONE", "")
+	t.Setenv("FAMILY_CURRENCY", "")
 	t.Setenv("BOT_ENABLED", "false")
 	config, err := Load()
-	if err != nil || config.Location.String() != "Europe/Minsk" || config.BotEnabled {
+	if err != nil || config.Location.String() != "Europe/Moscow" || config.Currency != "RUB" || config.BotEnabled {
 		t.Fatalf("invalid config %+v %v", config, err)
 	}
 	t.Setenv("FAMILY_TIMEZONE", "invalid/timezone")

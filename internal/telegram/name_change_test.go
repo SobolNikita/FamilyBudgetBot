@@ -23,7 +23,7 @@ func TestConversationalNameChangePersistsOnlyAfterConfirmation(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := storage.Repository{DB: pool}
-	runner := Runner{Pool: pool, Planner: forbiddenPlanner{testing: t}, Engine: bot.Engine{Currency: "BYN"}, Location: time.UTC}
+	runner := Runner{Pool: pool, Planner: forbiddenPlanner{testing: t}, Engine: bot.Engine{Currency: "RUB"}, Location: time.UTC}
 	for i, text := range []string{"/name", "изменить имя", "Аня", "удали", "да"} {
 		update := storage.Update{ID: int64(i + 1), UserID: 111, ChatID: 111, Text: text}
 		if err := repo.Enqueue(ctx, update); err != nil {
@@ -59,7 +59,7 @@ func TestModelMayStartOnlyOwnNameChange(t *testing.T) {
 				t.Fatal(err)
 			}
 			repo := storage.Repository{DB: pool}
-			runner := Runner{Pool: pool, Planner: namePlanner{subject: subject}, Engine: bot.Engine{Currency: "BYN"}, Location: time.UTC}
+			runner := Runner{Pool: pool, Planner: namePlanner{subject: subject}, Engine: bot.Engine{Currency: "RUB"}, Location: time.UTC}
 			update := storage.Update{ID: 1, UserID: 111, ChatID: 111, Text: "Хочу, чтобы вы называли меня иначе"}
 			if err := repo.Enqueue(ctx, update); err != nil {
 				t.Fatal(err)

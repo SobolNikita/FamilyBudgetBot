@@ -80,7 +80,7 @@ func TestRunnerAcknowledgesBurstWhileLLMIsBlocked(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	runner := Runner{Pool: pool, Client: &Client{BaseURL: server.URL, HTTP: server.Client()}, Planner: planner, Engine: bot.Engine{Currency: "BYN"}, Location: time.UTC}
+	runner := Runner{Pool: pool, Client: &Client{BaseURL: server.URL, HTTP: server.Client()}, Planner: planner, Engine: bot.Engine{Currency: "RUB"}, Location: time.UTC}
 	finished := make(chan error, 1)
 	go func() { finished <- runner.Run(ctx) }()
 	defer func() {

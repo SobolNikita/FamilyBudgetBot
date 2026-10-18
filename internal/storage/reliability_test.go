@@ -185,7 +185,7 @@ func TestCurrencyCannotRelabelHistory(t *testing.T) {
 	repo := Repository{DB: testDatabase(t)}
 	ctx := context.Background()
 	for range 2 {
-		if err := repo.EnsureCurrency(ctx, "BYN"); err != nil {
+		if err := repo.EnsureCurrency(ctx, "RUB"); err != nil {
 			t.Fatal(err)
 		}
 	}

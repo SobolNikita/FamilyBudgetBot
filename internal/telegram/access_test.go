@@ -38,7 +38,7 @@ func TestForeignReportRefusedInsteadOfSubstitutingOwnReport(t *testing.T) {
 		}
 	}
 	planner := &accessPlanner{}
-	runner := Runner{Pool: pool, Planner: planner, Engine: bot.Engine{Currency: "BYN"}, Location: time.UTC}
+	runner := Runner{Pool: pool, Planner: planner, Engine: bot.Engine{Currency: "RUB"}, Location: time.UTC}
 	scenarios := []struct {
 		userID                    int64
 		name, text, subject, want string
@@ -46,8 +46,8 @@ func TestForeignReportRefusedInsteadOfSubstitutingOwnReport(t *testing.T) {
 		{111, "Никита", "Сколько потратила Ева за неделю", "other", bot.AccessDeniedReply},
 		{111, "Никита", "А за месяц?", "other", bot.AccessDeniedReply},
 		{111, "Никита", "Сколько потратила вся семья?", "family", bot.AccessDeniedReply},
-		{111, "Никита", "Сколько потратил я за неделю?", "self", "Всего: 5.00 BYN"},
-		{222, "Ева", "Сколько потратила Ева за неделю?", "self", "Всего: 999.00 BYN"},
+		{111, "Никита", "Сколько потратил я за неделю?", "self", "Всего: 5.00 RUB"},
+		{222, "Ева", "Сколько потратила Ева за неделю?", "self", "Всего: 999.00 RUB"},
 		{222, "Ева", "Сколько потратил Никита?", "other", bot.AccessDeniedReply},
 	}
 	for position, scenario := range scenarios {

@@ -47,7 +47,7 @@ const server = createServer(async (request, response) => {
     const total = empty ? 0 : 400
     const offset = Number(url.searchParams.get('offset') || 0)
     const data = {
-      '/api/config': { currency: 'BYN', timezone: 'Europe/Minsk', today: configDate },
+      '/api/config': { currency: 'RUB', timezone: 'Europe/Moscow', today: configDate },
       '/api/categories': ['еда', 'транспорт', 'другое'],
       '/api/users': [
         { id: '111', display_name: stress ? 'Оченьдлинноеимя'.repeat(8) : 'Никита' },

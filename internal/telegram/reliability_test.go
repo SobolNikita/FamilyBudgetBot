@@ -60,7 +60,7 @@ func TestDifferentUsersProgressAndRunnerCancelsAllWork(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, 1)
-	runner := Runner{Pool: pool, Client: &Client{BaseURL: server.URL, HTTP: server.Client()}, Planner: planner, Engine: bot.Engine{Currency: "BYN"}, Location: time.FixedZone("Minsk", 3*3600)}
+	runner := Runner{Pool: pool, Client: &Client{BaseURL: server.URL, HTTP: server.Client()}, Planner: planner, Engine: bot.Engine{Currency: "RUB"}, Location: time.FixedZone("Moscow", 3*3600)}
 	go func() { done <- runner.Run(runCtx) }()
 	defer func() {
 		cancel()
