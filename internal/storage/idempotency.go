@@ -32,13 +32,20 @@ func (repo Repository) createOnce(ctx context.Context, input expenses.Input) (ex
 		return expenses.Expense{}, err
 	}
 	defer Rollback(tx)
+	if err := LockLifecycle(ctx, tx); err != nil {
+		return expenses.Expense{}, err
+	}
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 830124822))`, key); err != nil {
 		return expenses.Expense{}, err
 	}
 	var oldHash string
 	var response []byte
-	err = tx.QueryRow(ctx, `SELECT request_hash,response FROM expense_requests WHERE request_key=$1`, key).Scan(&oldHash, &response)
+	var revoked bool
+	err = tx.QueryRow(ctx, `SELECT request_hash,response,revoked FROM expense_requests WHERE request_key=$1`, key).Scan(&oldHash, &response, &revoked)
 	if err == nil {
+		if revoked {
+			return expenses.Expense{}, expenses.ErrGone
+		}
 		if oldHash != hash {
 			return expenses.Expense{}, fmt.Errorf("%w: ключ запроса уже использован с другими данными", expenses.ErrConflict)
 		}
@@ -49,7 +56,7 @@ func (repo Repository) createOnce(ctx context.Context, input expenses.Input) (ex
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return expenses.Expense{}, err
 	}
-	result, err := (Repository{DB: TimedDB{DB: tx}}).Create(ctx, input)
+	result, err := (Repository{DB: TimedDB{DB: tx}}).create(ctx, input)
 	if err != nil {
 		return result, err
 	}

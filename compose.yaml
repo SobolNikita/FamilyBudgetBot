@@ -2,7 +2,6 @@ name: family-expenses
 
 x-app: &app
   image: ${APP_IMAGE:-family-expenses:local}
-  build: .
   env_file: ${APP_ENV_FILE:-.env}
   environment:
     DATABASE_URL: postgres://db:5432/${POSTGRES_DB:-family_expenses}?sslmode=disable
@@ -30,6 +29,7 @@ services:
 
   migrate:
     <<: *app
+    pull_policy: never
     command: ["./migrate"]
     depends_on:
       db:
@@ -38,6 +38,7 @@ services:
 
   app:
     <<: *app
+    build: .
     stop_grace_period: 25s
     mem_limit: 512m
     cpus: 2

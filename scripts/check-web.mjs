@@ -16,6 +16,9 @@ const createKeys = []
 let editRecord = null
 let loseEditResponse = false
 let editWrites = 0
+let memberDeleted = false
+let memberRestored = false
+let memberDeleteCalls = 0
 await mkdir(resolve('.cache'), { recursive: true })
 const server = createServer(async (request, response) => {
   response.setHeader(
@@ -26,6 +29,19 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost')
   if (url.pathname.startsWith('/api/')) {
     requests.push(url.pathname + url.search)
+    if (url.pathname === '/api/users/111' && request.method === 'DELETE') {
+      memberDeleteCalls++
+      memberDeleted = true
+      response.writeHead(204)
+      response.end()
+      return
+    }
+    if (url.pathname === '/api/users/111/restore' && request.method === 'POST') {
+      memberRestored = true
+      response.writeHead(204)
+      response.end()
+      return
+    }
     if (editRecord && url.pathname === `/api/expenses/${editRecord.id}`) {
       response.setHeader('Content-Type', 'application/json')
       if (request.method === 'PUT') {
@@ -76,9 +92,21 @@ const server = createServer(async (request, response) => {
       '/api/config': { currency: 'RUB', timezone: 'Europe/Moscow', today: configDate },
       '/api/categories': ['еда', 'транспорт', 'другое'],
       '/api/users': [
-        { id: '111', display_name: stress ? 'Оченьдлинноеимя'.repeat(8) : 'Никита' },
-        { id: '222', display_name: 'Ева' },
+        ...(!memberDeleted
+          ? [
+              {
+                id: '111',
+                display_name: stress ? 'Оченьдлинноеимя'.repeat(8) : 'Никита',
+                version: 1,
+              },
+            ]
+          : []),
+        { id: '222', display_name: 'Ева', version: 1 },
       ],
+      '/api/users/removed':
+        memberDeleted && !memberRestored
+          ? [{ id: '111', display_name: '', version: 2, removed_at: '2026-10-18T00:00:00Z' }]
+          : [],
       '/api/expenses': {
         total,
         items: empty
@@ -671,6 +699,7 @@ try {
     comment: 'Изменено другим участником',
     version: 2,
   }
+  await wait(`${ready} && !!document.querySelector('.row-actions button')`)
   await evaluate(`document.querySelector('.row-actions button').click()`)
   await wait(`!!document.querySelector('dialog[open]')`)
   await evaluate(`document.querySelector('dialog form').requestSubmit()`)
@@ -698,6 +727,31 @@ try {
   console.log(
     'PASS: conflicting PUT keeps draft; lost PUT response is reconciled without another write',
   )
+  await evaluate(`document.querySelector('.manage-members').click()`)
+  await wait(`document.querySelectorAll('dialog .member-management-list li').length===2`)
+  await evaluate(`document.querySelector('dialog .member-management-list button').click()`)
+  await wait(`document.querySelector('dialog').textContent.includes('безвозвратно')`)
+  assert.equal(memberDeleteCalls, 0)
+  await evaluate(`document.querySelector('dialog .modal-actions .secondary').click()`)
+  await wait(`!!document.querySelector('dialog .member-management-list button')`)
+  await evaluate(`document.querySelector('dialog .member-management-list button').click()`)
+  await evaluate(`document.querySelector('dialog .modal-actions .danger').click()`)
+  await wait(
+    `document.querySelector('dialog').textContent.includes('Повторная регистрация заблокирована') && Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent==='Восстановить доступ')`,
+  )
+  assert.equal(memberDeleteCalls, 1)
+  await evaluate(
+    `Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Восстановить доступ').click()`,
+  )
+  await evaluate(`document.querySelector('dialog .modal-actions .primary').click()`)
+  await wait(
+    `document.querySelector('dialog').textContent.includes('Доступ восстановлен') && document.querySelectorAll('dialog .member-management-list li').length===1`,
+  )
+  await evaluate(`document.querySelector('dialog .modal-header button').click()`)
+  await wait(ready)
+  console.log(
+    'PASS: member removal requires confirmation; restoration does not restore old membership data',
+  )
   await evaluate(`(() => {
     const input = document.querySelectorAll('.filters input[type=date]')[0];
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '2026-01-01');
@@ -721,7 +775,7 @@ try {
     .at(-1)
   assert.equal(new URL(openPeriodRequest, 'http://localhost').searchParams.has('to'), false)
   failExpenses = true
-  await evaluate(`document.querySelector('.shared-expenses').click()`)
+  await evaluate(`Array.from(document.querySelectorAll('.member')).find(e=>e.textContent.includes('Ева')).click()`)
   await wait(`!!document.querySelector('.alert.error') && !document.querySelector('.loader')`)
   assert.equal(await evaluate(`document.querySelector('.total-value').textContent`), '—')
   assert.equal(await evaluate(`document.querySelectorAll('.breakdown-item').length`), 0)

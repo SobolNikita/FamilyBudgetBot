@@ -69,6 +69,12 @@ func (runner Runner) deliver(ctx context.Context) {
 
 func (runner Runner) deliverUpdate(ctx context.Context, repo storage.Repository, update storage.Update) (result error) {
 	defer func() { runner.Health.delivery(result) }()
+	return repo.DeliverCurrent(ctx, update.ID, func(current storage.Repository, fresh storage.Update) error {
+		return runner.deliverCurrent(ctx, current, fresh)
+	})
+}
+
+func (runner Runner) deliverCurrent(ctx context.Context, repo storage.Repository, update storage.Update) error {
 	text := update.Reply
 	if update.Status == "pending" {
 		text = receiptText
