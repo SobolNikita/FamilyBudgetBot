@@ -59,3 +59,19 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - name: Browser acceptance checks
+        working-directory: .
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: node scripts/check-web.mjs
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build and exercise an isolated Compose installation
+        run: node scripts/check-compose.mjs
