@@ -156,17 +156,38 @@ try {
   })
   assert.equal((await (await request(`/api/expenses?${bulkFilter}`)).json()).total, 45)
   const freshSelection = await (await request(`/api/expenses/selection?${bulkFilter}`)).json()
+  const excludedID = selectedPage.items[1].id
   const deletion = await (
     await request(`/api/expenses/bulk-delete?${bulkFilter}`, 200, {
       method: 'POST',
-      body: JSON.stringify({ token: freshSelection.token }),
+      body: JSON.stringify({ token: freshSelection.token, exclude: [excludedID] }),
     })
   ).json()
-  assert.equal(deletion.deleted, 45)
+  assert.equal(deletion.deleted, 44)
   await request(`/api/expenses/bulk-delete?${bulkFilter}`, 409, {
     method: 'POST',
     body: JSON.stringify({ token: freshSelection.token }),
   })
+  const kept = await (await request(`/api/expenses/${excludedID}`)).json()
+  const other = (await (await request('/api/expenses?user_id=222')).json()).items[0]
+  // Mixing a selected ID from outside the filter must roll back the whole batch.
+  await request(`/api/expenses/bulk-delete?${bulkFilter}`, 409, {
+    method: 'POST',
+    body: JSON.stringify({
+      items: [
+        { id: kept.id, version: kept.version },
+        { id: other.id, version: other.version },
+      ],
+    }),
+  })
+  await request(`/api/expenses/${excludedID}`)
+  const manual = await (
+    await request(`/api/expenses/bulk-delete?${bulkFilter}`, 200, {
+      method: 'POST',
+      body: JSON.stringify({ items: [{ id: kept.id, version: kept.version }] }),
+    })
+  ).json()
+  assert.equal(manual.deleted, 1)
   const survivor = (await (await request('/api/expenses')).json()).items[0]
   assert.equal(survivor.user_id, '222')
   await request(`/api/expenses/${survivor.id}?version=${survivor.version}`, 204, {

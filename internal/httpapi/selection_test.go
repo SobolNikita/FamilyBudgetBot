@@ -15,14 +15,16 @@ type selectionStub struct {
 	token  string
 	err    error
 	writes int
+	input  expenses.DeleteSelectionRequest
 }
 
 func (s *selectionStub) SelectExpenses(_ context.Context, f expenses.Filter) (expenses.Selection, error) {
 	s.filter = f
 	return expenses.Selection{Token: "snapshot", Count: 45}, s.err
 }
-func (s *selectionStub) DeleteSelection(_ context.Context, f expenses.Filter, token string) (int64, error) {
-	s.filter, s.token = f, token
+func (s *selectionStub) DeleteSelection(_ context.Context, f expenses.Filter, input expenses.DeleteSelectionRequest) (int64, error) {
+	s.filter, s.token = f, input.Token
+	s.input = input
 	s.writes++
 	return 45, s.err
 }
@@ -49,6 +51,12 @@ func TestSelectionRoutes(t *testing.T) {
 	}
 	if repo.token != "snapshot" || repo.filter.UserID != 111 {
 		t.Fatal("precondition/filter lost")
+	}
+	if w := request("POST", "/api/expenses/bulk-delete", `{"items":[{"id":"9007199254740993","version":2}]}`); w.Code != 200 || len(repo.input.Items) != 1 || repo.input.Items[0].ID != 9007199254740993 {
+		t.Fatalf("manual selection: %d %+v", w.Code, repo.input)
+	}
+	if w := request("POST", "/api/expenses/bulk-delete", `{"token":"snapshot","exclude":["42"]}`); w.Code != 200 || len(repo.input.Exclude) != 1 || repo.input.Exclude[0] != "42" {
+		t.Fatalf("exclusions: %d %+v", w.Code, repo.input)
 	}
 	repo.err = expenses.ErrConflict
 	if w := request("POST", "/api/expenses/bulk-delete", `{"token":"stale"}`); w.Code != http.StatusConflict {
