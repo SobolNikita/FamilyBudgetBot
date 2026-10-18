@@ -52,7 +52,6 @@ func (runner Runner) deliver(ctx context.Context) {
 			}
 			if failure != nil && failure.Status == 401 {
 				retryAfter = max(retryAfter, time.Minute)
-				runner.Health.Worker("telegram_http_401")
 			}
 			slog.Warn("Telegram delivery failed", "update_id", update.ID, "code", code, "attempt", update.SendAttempts+1)
 			if retryErr := repo.RetryDelivery(ctx, update, retryAfter, code); retryErr != nil {
@@ -68,7 +67,8 @@ func (runner Runner) deliver(ctx context.Context) {
 	}
 }
 
-func (runner Runner) deliverUpdate(ctx context.Context, repo storage.Repository, update storage.Update) error {
+func (runner Runner) deliverUpdate(ctx context.Context, repo storage.Repository, update storage.Update) (result error) {
+	defer func() { runner.Health.delivery(result) }()
 	text := update.Reply
 	if update.Status == "pending" {
 		text = receiptText

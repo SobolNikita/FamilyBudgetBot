@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -95,6 +97,8 @@ func (server Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /", server.static)
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestID := rand.Text()
+		writer.Header().Set("X-Request-ID", requestID)
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("Referrer-Policy", "same-origin")
 		writer.Header().Set("X-Frame-Options", "DENY")
@@ -115,7 +119,8 @@ func (server Server) Handler() http.Handler {
 		}
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.Error("http panic", "path", request.URL.Path)
+				// Panic values can contain request data or credentials; log only their type.
+				slog.Error("http panic", "request_id", requestID, "method", request.Method, "path", request.URL.Path, "panic_type", fmt.Sprintf("%T", recovered), "stack", string(debug.Stack()))
 				writeJSON(writer, 500, map[string]string{"error": "Не получилось выполнить действие. Попробуйте немного позже."})
 			}
 		}()
@@ -261,7 +266,7 @@ func respond(writer http.ResponseWriter, value any, err error) {
 	case errors.Is(err, expenses.ErrConflict):
 		status, message = http.StatusConflict, expenses.UserMessage(err)
 	default:
-		slog.Error("api operation failed", "error", err)
+		slog.Error("api operation failed", "request_id", writer.Header().Get("X-Request-ID"), "error", err)
 	}
 	writeJSON(writer, status, map[string]string{"error": message})
 }
