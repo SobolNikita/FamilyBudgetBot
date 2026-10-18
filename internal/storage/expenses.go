@@ -90,10 +90,21 @@ func where(filter expenses.Filter) (string, []any) {
 func (repo Repository) List(ctx context.Context, filter expenses.Filter) (expenses.Page, error) {
 	clause, args := where(filter)
 	page := expenses.Page{Items: []expenses.Expense{}}
-	query := fmt.Sprintf(`SELECT (SELECT count(*) FROM expenses WHERE %s),COALESCE((SELECT jsonb_agg(to_jsonb(page) || jsonb_build_object('id',id::text,'user_id',user_id::text) ORDER BY spent_at DESC,id DESC) FROM (SELECT %s FROM expenses WHERE %s ORDER BY expenses.spent_at DESC,id DESC LIMIT $%d OFFSET $%d) page),'[]'::jsonb)`, clause, strings.ReplaceAll(columns, "to_char(spent_at, 'YYYY-MM-DD')", "to_char(spent_at, 'YYYY-MM-DD') AS spent_at"), clause, len(args)+1, len(args)+2)
-	args = append(args, filter.Limit, filter.Offset)
+	query := fmt.Sprintf(`
+SELECT
+    (SELECT count(*) FROM expenses WHERE %[1]s),
+    COALESCE((SELECT jsonb_agg(
+        to_jsonb(page) || jsonb_build_object('id', id::text, 'user_id', user_id::text)
+        ORDER BY spent_at DESC, id DESC
+    ) FROM (
+        SELECT %[2]s FROM expenses WHERE %[1]s
+        ORDER BY expenses.spent_at DESC, id DESC LIMIT $%[3]d OFFSET $%[4]d
+    ) page), '[]'::jsonb),
+    COALESCE((SELECT expense_revision FROM users WHERE id=$%[5]d), 0)
+`, clause, strings.ReplaceAll(columns, "to_char(spent_at, 'YYYY-MM-DD')", "to_char(spent_at, 'YYYY-MM-DD') AS spent_at"), len(args)+1, len(args)+2, len(args)+3)
+	args = append(args, filter.Limit, filter.Offset, filter.UserID)
 	var data []byte
-	if err := repo.DB.QueryRow(ctx, query, args...).Scan(&page.Total, &data); err != nil {
+	if err := repo.DB.QueryRow(ctx, query, args...).Scan(&page.Total, &data, &page.Revision); err != nil {
 		return page, err
 	}
 	err := json.Unmarshal(data, &page.Items)

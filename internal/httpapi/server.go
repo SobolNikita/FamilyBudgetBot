@@ -88,6 +88,15 @@ func (server Server) Handler() http.Handler {
 		writeJSON(writer, http.StatusOK, expenses.Categories)
 	})
 	mux.HandleFunc("GET /api/expenses", server.list)
+	mux.HandleFunc("GET /api/expenses/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := parseID(r)
+		if err != nil {
+			respond(w, nil, err)
+			return
+		}
+		item, err := server.Service.Repo.Get(r.Context(), expenses.FamilyActor, id)
+		respond(w, item, err)
+	})
 	mux.HandleFunc("POST /api/expenses", server.create)
 	mux.HandleFunc("PUT /api/expenses/{id}", server.update)
 	mux.HandleFunc("DELETE /api/expenses/{id}", server.delete)

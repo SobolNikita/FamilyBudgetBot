@@ -57,8 +57,9 @@ type Filter struct {
 }
 
 type Page struct {
-	Items []Expense `json:"items"`
-	Total int       `json:"total"`
+	Items    []Expense `json:"items"`
+	Total    int       `json:"total"`
+	Revision int64     `json:"-"`
 }
 
 type CategoryTotal struct {

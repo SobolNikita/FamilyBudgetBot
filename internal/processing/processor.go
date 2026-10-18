@@ -41,6 +41,17 @@ func (runner Processor) Process(ctx context.Context, repo storage.Repository, up
 	if err != nil {
 		return err
 	}
+	state, err = repo.RefreshContext(ctx, update.UserID, state)
+	if err != nil {
+		return err
+	}
+	messageAt := update.MessageAt
+	if messageAt.IsZero() {
+		messageAt = update.CreatedAt
+	}
+	if messageAt.IsZero() {
+		messageAt = time.Now()
+	}
 	recent, err := repo.Recent(ctx, update.UserID)
 	if err != nil {
 		return err
@@ -55,13 +66,6 @@ func (runner Processor) Process(ctx context.Context, repo storage.Repository, up
 				return err
 			}
 			started := time.Now()
-			messageAt := update.MessageAt
-			if messageAt.IsZero() {
-				messageAt = update.CreatedAt
-			}
-			if messageAt.IsZero() {
-				messageAt = time.Now()
-			}
 			planCtx, planCancel := context.WithTimeout(ctx, 2*time.Minute)
 			prepared.Action, err = runner.Planner.Plan(planCtx, llm.Request{Text: update.Text, Today: messageAt.In(runner.Location).Format(time.DateOnly), Currency: runner.Engine.Currency, CurrentUser: user.DisplayName, Context: state.Context, RecentExpenses: recent})
 			planCancel()
@@ -122,6 +126,9 @@ func (runner Processor) Process(ctx context.Context, repo storage.Repository, up
 			reply += " Покупки из этого сообщения пока не записаны. Исправьте данные и отправьте весь список ещё раз."
 		}
 		nextState = bot.State{}
+	}
+	if count := len(nextState.Context.Turns); count > 0 {
+		nextState.Context.Turns[count-1].Date = messageAt.In(runner.Location).Format(time.DateOnly)
 	}
 	if err := txRepo.Complete(ctx, update.ID, update.UserID, reply, nextState); err != nil {
 		return err
