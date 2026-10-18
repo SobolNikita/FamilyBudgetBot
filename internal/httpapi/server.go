@@ -262,10 +262,14 @@ func parseFilter(request *http.Request) (expenses.Filter, error) {
 }
 
 func decode(writer http.ResponseWriter, request *http.Request, target any) error {
+	return decodeLimit(writer, request, target, 16*1024)
+}
+
+func decodeLimit(writer http.ResponseWriter, request *http.Request, target any, limit int64) error {
 	if strings.Split(request.Header.Get("Content-Type"), ";")[0] != "application/json" {
 		return fmt.Errorf("%w: не удалось прочитать данные; обновите страницу и попробуйте ещё раз", expenses.ErrInvalid)
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024))
+	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, limit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return fmt.Errorf("%w: не удалось прочитать данные; обновите страницу и попробуйте ещё раз", expenses.ErrInvalid)

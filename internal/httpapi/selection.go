@@ -10,7 +10,7 @@ import (
 
 type SelectionRepository interface {
 	SelectExpenses(context.Context, expenses.Filter) (expenses.Selection, error)
-	DeleteSelection(context.Context, expenses.Filter, string) (int64, error)
+	DeleteSelection(context.Context, expenses.Filter, expenses.DeleteSelectionRequest) (int64, error)
 }
 
 func (server Server) selectExpenses(w http.ResponseWriter, r *http.Request) {
@@ -35,14 +35,12 @@ func (server Server) deleteSelection(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
-	var input struct {
-		Token string `json:"token"`
-	}
-	if err := decode(w, r, &input); err != nil {
+	var input expenses.DeleteSelectionRequest
+	if err := decodeLimit(w, r, &input, 128*1024); err != nil {
 		respond(w, nil, err)
 		return
 	}
-	count, err := server.Selections.DeleteSelection(r.Context(), filter, input.Token)
+	count, err := server.Selections.DeleteSelection(r.Context(), filter, input)
 	if errors.Is(err, expenses.ErrConflict) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "Набор расходов изменился. Обновите список и выберите расходы заново."})
 		return
