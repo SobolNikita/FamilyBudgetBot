@@ -15,6 +15,7 @@ import Pagination from './Pagination'
 import ExpenseForm from './ExpenseForm'
 import Modal from './Modal'
 import MemberManager from './MemberManager'
+import BulkExpenses from './BulkExpenses'
 import ThemePicker from './ThemePicker'
 
 const emptyFilters: Filters = { user_id: '', from: '', to: '', category: '' }
@@ -391,6 +392,19 @@ export default function App() {
                 Сбросить
               </button>
             </div>
+            <BulkExpenses
+              key={`${JSON.stringify(filters)}:${revision}`}
+              filters={filters}
+              total={page.total}
+              disabled={loading || !!error}
+              description={`${filters.user_id ? users.find((user) => user.id === filters.user_id)?.display_name || `Участник #${filters.user_id}` : 'Вся семья'} · ${filters.category || 'Все категории'} · ${period}`}
+              onRefresh={() => setRevision((current) => current + 1)}
+              onDeleted={(count) => {
+                changeView(filters, 0, true)
+                setRevision((current) => current + 1)
+                setNotice(`Удалено расходов: ${count}`)
+              }}
+            />
             <div className="table-wrap" aria-busy={loading}>
               <table role="table" aria-label="Расходы">
                 <thead role="rowgroup">

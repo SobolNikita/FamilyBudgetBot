@@ -741,8 +741,43 @@ progress::-moz-progress-bar {
   background: #19312166;
   backdrop-filter: blur(3px);
 }
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid #e0e6d9;
+}
+.bulk-select {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex: 1 1 220px;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  min-height: 44px;
+}
+.bulk-select input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: #547c49;
+}
+.bulk-toolbar .danger {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+}
+.bulk-error {
+  flex-basis: 100%;
+}
 .modal-header {
   display: flex;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 18px;
@@ -751,10 +786,16 @@ progress::-moz-progress-bar {
   font-size: 20px;
 }
 .modal-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
   background: #f0f3eb;
   border-radius: 50%;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   font-size: 22px;
   color: #8a9c7d;
 }

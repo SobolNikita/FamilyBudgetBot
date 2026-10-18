@@ -31,6 +31,7 @@ type Server struct {
 	BotStatus      func() (any, bool)
 	QueueStatus    func(context.Context) (any, error)
 	Members        MemberRepository
+	Selections     SelectionRepository
 }
 
 type MemberRepository interface {
@@ -103,6 +104,10 @@ func (server Server) Handler() http.Handler {
 		writeJSON(writer, http.StatusOK, expenses.Categories)
 	})
 	mux.HandleFunc("GET /api/expenses", server.list)
+	if server.Selections != nil {
+		mux.HandleFunc("GET /api/expenses/selection", server.selectExpenses)
+		mux.HandleFunc("POST /api/expenses/bulk-delete", server.deleteSelection)
+	}
 	mux.HandleFunc("GET /api/expenses/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := parseID(r)
 		if err != nil {
