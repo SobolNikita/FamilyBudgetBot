@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, query, type Filters } from './api'
+import { useExpenseSelection } from './ExpenseSelection'
+import { selectionRequest } from './selection'
+import SelectionCheckbox from './SelectionCheckbox'
 import Modal from './Modal'
-
-type Selection = { token: string; count: number }
 
 export default function BulkExpenses({
   filters,
@@ -19,63 +20,32 @@ export default function BulkExpenses({
   onDeleted: (count: number) => void
   onRefresh: () => void
 }) {
-  const [selection, setSelection] = useState<Selection | null>(null)
-  const [selecting, setSelecting] = useState(false)
+  const { state, count, busy, error, setError, clear, selectAll } = useExpenseSelection()
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [error, setError] = useState('')
-  const controller = useRef<AbortController | null>(null)
   const active = useRef(true)
   useEffect(() => {
     active.current = true
     return () => {
       active.current = false
-      controller.current?.abort()
     }
   }, [])
 
-  async function selectAll() {
-    if (selection) {
-      setSelection(null)
-      setError('')
-      return
-    }
-    const request = new AbortController()
-    controller.current = request
-    setSelecting(true)
-    setError('')
-    try {
-      const result = await api<Selection>(`/expenses/selection?${query(filters)}`, {
-        signal: request.signal,
-      })
-      if (request.signal.aborted) return
-      if (result.count === 0) {
-        setError('Подходящих расходов больше нет. Обновите список.')
-      } else {
-        setSelection(result)
-      }
-    } catch (failure) {
-      if (!request.signal.aborted) setError((failure as Error).message)
-    } finally {
-      if (!request.signal.aborted) setSelecting(false)
-    }
-  }
-
   async function remove() {
-    if (!selection || deleting) return
+    if (!count || deleting) return
     setDeleting(true)
     setError('')
     try {
       const result = await api<{ deleted: number }>(`/expenses/bulk-delete?${query(filters)}`, {
         method: 'POST',
-        body: JSON.stringify({ token: selection.token }),
+        body: JSON.stringify(selectionRequest(state)),
       })
       if (active.current) onDeleted(result.deleted)
     } catch (failure) {
       // A lost response may mean the deletion committed. Require a fresh list
       // and a new explicit selection, never silently repeat a destructive write.
       if (active.current) {
-        setSelection(null)
+        clear()
         setError((failure as Error).message)
       }
     } finally {
@@ -85,30 +55,36 @@ export default function BulkExpenses({
 
   return (
     <>
-      <div className="bulk-toolbar" aria-busy={selecting}>
-        <label className="bulk-select">
-          <input
-            type="checkbox"
-            checked={!!selection}
-            disabled={disabled || selecting || !total}
-            onChange={selectAll}
-          />
-          <span>
-            {selecting
-              ? 'Выбираем расходы…'
-              : selection
-                ? `Выбрано ${selection.count} по фильтру — все страницы`
-                : `Выбрать все по фильтру (${total}) — все страницы`}
+      <div className="bulk-toolbar" aria-busy={busy}>
+        <SelectionCheckbox
+          className="bulk-select"
+          label="Выбрать все по фильтру"
+          checked={state.kind === 'all' && state.excluded.length === 0}
+          mixed={count > 0 && (state.kind === 'manual' || state.excluded.length > 0)}
+          disabled={busy || !total}
+          onChange={selectAll}
+        >
+          <span className="bulk-select-copy">
+            <strong>Выбрать все по фильтру</strong>
+            <span>На всех страницах · {total} записей</span>
           </span>
-        </label>
-        {selection && (
-          <button
-            className="danger"
-            disabled={disabled || selecting}
-            onClick={() => setConfirming(true)}
-          >
-            Удалить выбранные ({selection.count})
-          </button>
+        </SelectionCheckbox>
+        {count > 0 && (
+          <div className="bulk-selection-actions">
+            <span className="selection-count" role="status">
+              Выбрано: {count}
+            </span>
+            <button className="text-button clear-selection" disabled={busy} onClick={clear}>
+              Снять выбор
+            </button>
+            <button
+              className="danger"
+              disabled={disabled || busy}
+              onClick={() => setConfirming(true)}
+            >
+              Удалить выбранное ({count})
+            </button>
+          </div>
         )}
         {error && !confirming && (
           <div className="bulk-error" role="alert">
@@ -124,10 +100,13 @@ export default function BulkExpenses({
           }}
         >
           <p className="delete-description">{description}</p>
-          {selection && (
+          {count > 0 && (
             <p className="delete-description">
-              Будут удалены все {selection.count} расходов по этому фильтру со всех страниц. Это
-              действие нельзя отменить.
+              Будут удалены выбранные расходы: {count}.{' '}
+              {state.kind === 'all'
+                ? 'Выбор охватывает все страницы с учётом снятых галочек.'
+                : 'Выбор включает отмеченные записи с разных страниц.'}{' '}
+              Это действие нельзя отменить.
             </p>
           )}
           {error && (
@@ -139,9 +118,9 @@ export default function BulkExpenses({
             <button className="secondary" disabled={deleting} onClick={() => setConfirming(false)}>
               Отмена
             </button>
-            {selection ? (
+            {count > 0 ? (
               <button className="danger" disabled={deleting} onClick={remove}>
-                {deleting ? 'Удаляем…' : `Удалить ${selection.count} расходов`}
+                {deleting ? 'Удаляем…' : `Удалить ${count} расходов`}
               </button>
             ) : (
               <button className="primary" onClick={onRefresh}>

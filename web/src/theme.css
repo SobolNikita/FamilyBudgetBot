@@ -1,6 +1,38 @@
 :root {
   color-scheme: light;
 }
+:root[data-theme='dark'] .bulk-toolbar {
+  background: #1b261f;
+  border-color: var(--border);
+}
+:root[data-theme='dark'] .bulk-select {
+  background: var(--raised);
+  border-color: var(--border);
+  color: #e4ece6;
+}
+:root[data-theme='dark'] .bulk-select-copy > span {
+  color: var(--muted);
+}
+:root[data-theme='dark'] .selection-box {
+  background: var(--surface);
+  border-color: #718d7a;
+  color: #13281b;
+}
+:root[data-theme='dark'] .selection-checkbox input:checked + .selection-box,
+:root[data-theme='dark'] .selection-checkbox input:indeterminate + .selection-box {
+  background: #a6cfb3;
+  border-color: #a6cfb3;
+}
+:root[data-theme='dark'] .selection-checkbox:not([data-disabled]):hover .selection-box {
+  border-color: #a6cfb3;
+}
+:root[data-theme='dark'] .selection-count {
+  background: #344c3d;
+  color: #cbe6d2;
+}
+:root[data-theme='dark'] tbody tr.expense-selected {
+  background: #263c2e;
+}
 .topbar {
   gap: 12px;
 }

@@ -22,6 +22,7 @@ let memberDeleteCalls = 0
 let bulkMode = 'success'
 let bulkDeleteCalls = 0
 const bulkRequests = []
+const bulkDeletedIDs = new Set()
 await mkdir(resolve('.cache'), { recursive: true })
 const server = createServer(async (request, response) => {
   response.setHeader(
@@ -34,13 +35,19 @@ const server = createServer(async (request, response) => {
     requests.push(url.pathname + url.search)
     if (url.pathname === '/api/expenses/selection') {
       response.setHeader('Content-Type', 'application/json')
-      response.end(JSON.stringify({ token: 'confirmed-snapshot', count: empty ? 0 : 400 }))
+      response.end(
+        JSON.stringify({
+          token: 'confirmed-snapshot',
+          count: empty ? 0 : 400 - bulkDeletedIDs.size,
+        }),
+      )
       return
     }
     if (url.pathname === '/api/expenses/bulk-delete' && request.method === 'POST') {
       let body = ''
       for await (const chunk of request) body += chunk
-      bulkRequests.push({ url: url.toString(), body: JSON.parse(body) })
+      const input = JSON.parse(body)
+      bulkRequests.push({ url: url.toString(), body: input })
       bulkDeleteCalls++
       response.setHeader('Content-Type', 'application/json')
       if (bulkMode === 'conflict') {
@@ -53,8 +60,13 @@ const server = createServer(async (request, response) => {
         response.writeHead(504)
         response.end(JSON.stringify({ error: 'Ответ потерян. Обновите список расходов.' }))
       } else {
-        empty = true
-        response.end(JSON.stringify({ deleted: 400 }))
+        const ids = input.items
+          ? input.items.map((item) => item.id)
+          : Array.from({ length: 400 }, (_, index) => String(index + 1)).filter(
+              (id) => !(input.exclude || []).includes(id) && !bulkDeletedIDs.has(id),
+            )
+        for (const id of ids) bulkDeletedIDs.add(id)
+        response.end(JSON.stringify({ deleted: ids.length }))
       }
       return
     }
@@ -115,7 +127,7 @@ const server = createServer(async (request, response) => {
       response.end(JSON.stringify({ error: 'Тестовый сбой загрузки' }))
       return
     }
-    const total = empty ? 0 : 400
+    const total = empty ? 0 : 400 - bulkDeletedIDs.size
     const offset = Number(url.searchParams.get('offset') || 0)
     const data = {
       '/api/config': { currency: 'RUB', timezone: 'Europe/Moscow', today: configDate },
@@ -140,15 +152,17 @@ const server = createServer(async (request, response) => {
         total,
         items: empty
           ? []
-          : Array.from({ length: 20 }, (_, index) => ({
-              id: String(offset + index + 1),
+          : Array.from({ length: 400 }, (_, index) => ({
+              id: String(index + 1),
               user_id: url.searchParams.get('user_id') || '111',
               amount: stress ? '999999999999.99' : '5.00',
               category: 'еда',
               spent_at: '2026-10-16',
               comment: stress ? 'Длинноеописание'.repeat(30) : 'Тестовая покупка',
               version: 1,
-            })),
+            }))
+              .filter((item) => !bulkDeletedIDs.has(item.id))
+              .slice(offset, offset + 20),
       },
       '/api/reports/summary': {
         amount: stress ? '99999999999999999.99' : '300.00',
@@ -805,12 +819,117 @@ try {
   console.log(
     'PASS: member removal requires confirmation; restoration does not restore old membership data',
   )
+  await jump(1)
+  await wait(`${ready} && !!document.querySelector('.expense-select input')`)
+  await evaluate(`document.querySelector('.expense-select input').click()`)
+  await wait(`document.querySelector('.selection-count')?.textContent === 'Выбрано: 1'`)
+  assert.equal(await evaluate(`document.querySelector('.bulk-select input').indeterminate`), true)
+  // The custom control remains a native keyboard-operable checkbox.
+  await evaluate(`document.querySelectorAll('.expense-select input')[1].focus()`)
+  await command('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: ' ',
+    code: 'Space',
+    windowsVirtualKeyCode: 32,
+  })
+  await command('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: ' ',
+    code: 'Space',
+    windowsVirtualKeyCode: 32,
+  })
+  await wait(`document.querySelector('.selection-count')?.textContent === 'Выбрано: 2'`)
+  await jump(2)
+  await wait(`${ready} && new URL(location.href).searchParams.get('offset') === '20'`)
+  await evaluate(`document.querySelector('.expense-select input').click()`)
+  await wait(`document.querySelector('.selection-count')?.textContent === 'Выбрано: 3'`)
+  await jump(1)
+  await wait(`${ready} && !new URL(location.href).searchParams.has('offset')`)
+  assert.equal(
+    await evaluate(`document.querySelectorAll('.expense-select input:checked').length`),
+    2,
+  )
+  await evaluate(`document.querySelectorAll('.expense-select input')[1].click()`)
+  await wait(`document.querySelector('.selection-count')?.textContent === 'Выбрано: 2'`)
+  for (const theme of ['light', 'dark']) {
+    await chooseTheme(theme)
+    for (const width of [320, 1440]) {
+      await command('Emulation.setDeviceMetricsOverride', {
+        width,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      })
+      await evaluate(`document.querySelector('.bulk-toolbar').scrollIntoView({block:'start'})`)
+      assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), true)
+      assert.equal(
+        await evaluate(
+          `(() => { const r=document.querySelector('.expense-select').getBoundingClientRect(); return r.width>=44 && r.height>=44 })()`,
+        ),
+        true,
+      )
+      const screenshot = await command('Page.captureScreenshot', { format: 'png' })
+      await writeFile(
+        resolve(`.cache/row-selection-${theme}-${width}.png`),
+        Buffer.from(screenshot.data, 'base64'),
+      )
+    }
+  }
+  await chooseTheme('light')
+  await evaluate(`document.querySelector('.bulk-toolbar .danger').click()`)
+  await wait(`!!document.querySelector('dialog[open]')`)
+  assert.equal(bulkDeleteCalls, 0)
+  await evaluate(`document.querySelector('dialog .modal-actions .secondary').click()`)
+  await wait(`!document.querySelector('dialog')`)
+  assert.equal(bulkDeleteCalls, 0)
+  await evaluate(`document.querySelector('.bulk-toolbar .danger').click()`)
+  await wait(`!!document.querySelector('dialog[open]')`)
+  await evaluate(`document.querySelector('dialog .modal-actions .danger').click()`)
+  await wait(
+    `${ready} && !document.querySelector('dialog') && document.querySelector('.alert.success').textContent.includes('2')`,
+  )
+  assert.deepEqual(bulkRequests.at(-1).body, {
+    items: [
+      { id: '1', version: 1 },
+      { id: '21', version: 1 },
+    ],
+  })
+  assert.equal(
+    await evaluate(`document.querySelectorAll('.expense-select input:checked').length`),
+    0,
+  )
+  bulkDeletedIDs.clear()
+  await reloadPage()
+  await wait(ready)
+  await evaluate(`document.querySelector('.bulk-select input').click()`)
+  await wait(`document.querySelectorAll('.expense-select input:checked').length === 20`)
+  await evaluate(`document.querySelector('.expense-select input').click()`)
+  await wait(`document.querySelector('.selection-count').textContent === 'Выбрано: 399'`)
+  assert.equal(await evaluate(`document.querySelector('.bulk-select input').indeterminate`), true)
+  await jump(2)
+  await wait(`${ready} && new URL(location.href).searchParams.get('offset') === '20'`)
+  await evaluate(`document.querySelector('.expense-select input').click()`)
+  await wait(`document.querySelector('.selection-count').textContent === 'Выбрано: 398'`)
+  await evaluate(`document.querySelector('.bulk-toolbar .danger').click()`)
+  await wait(`!!document.querySelector('dialog[open]')`)
+  await evaluate(`document.querySelector('dialog .modal-actions .danger').click()`)
+  await wait(
+    `${ready} && !document.querySelector('dialog') && document.querySelectorAll('.expense-select input').length === 2`,
+  )
+  assert.deepEqual(bulkRequests.at(-1).body, { token: 'confirmed-snapshot', exclude: ['1', '21'] })
+  bulkDeletedIDs.clear()
+  await reloadPage()
+  await wait(ready)
+  console.log(
+    'PASS: row selection, keyboard control, mixed state, cross-page selection, exclusions and exact deletion payloads',
+  )
+  const beforeBulkAll = bulkDeleteCalls
   // A single selection covers 400 records, not just the 20 rendered rows.
   await evaluate(`document.querySelector('.bulk-select input').click()`)
   await wait(`!!document.querySelector('.bulk-toolbar .danger')`)
   assert.equal(
     await evaluate(`document.querySelector('.bulk-toolbar .danger').textContent`),
-    'Удалить выбранные (400)',
+    'Удалить выбранное (400)',
   )
   await jump(2)
   await wait(`${ready} && new URL(location.href).searchParams.get('offset') === '20'`)
@@ -821,10 +940,10 @@ try {
   )
   await evaluate(`document.querySelector('.bulk-toolbar .danger').click()`)
   await wait(`!!document.querySelector('dialog[open]')`)
-  assert.equal(bulkDeleteCalls, 0)
+  assert.equal(bulkDeleteCalls, beforeBulkAll)
   await evaluate(`document.querySelector('dialog .modal-actions .secondary').click()`)
   await wait(`!document.querySelector('dialog')`)
-  assert.equal(bulkDeleteCalls, 0, 'cancel must not delete')
+  assert.equal(bulkDeleteCalls, beforeBulkAll, 'cancel must not delete')
   await evaluate(
     `document.querySelector('.filters select').value = '222'; document.querySelector('.filters select').dispatchEvent(new Event('change', {bubbles:true}))`,
   )
@@ -837,6 +956,7 @@ try {
   for (const mode of ['conflict', 'lost', 'success']) {
     bulkMode = mode
     empty = false
+    bulkDeletedIDs.clear()
     await reloadPage()
     await wait(ready)
     await evaluate(`document.querySelector('.bulk-select input').click()`)
@@ -884,12 +1004,13 @@ try {
       assert.equal(await evaluate(`document.querySelector('.bulk-select input').checked`), false)
     }
   }
-  assert.equal(bulkDeleteCalls, 3, 'exactly one write per confirmation')
-  for (const request of bulkRequests) {
+  assert.equal(bulkDeleteCalls, beforeBulkAll + 3, 'exactly one write per confirmation')
+  for (const request of bulkRequests.slice(-3)) {
     assert.equal(request.body.token, 'confirmed-snapshot')
     assert.equal(new URL(request.url).searchParams.get('user_id'), '222')
   }
   empty = false
+  bulkDeletedIDs.clear()
   await reloadPage()
   await wait(ready)
   await command('Emulation.setDeviceMetricsOverride', {
