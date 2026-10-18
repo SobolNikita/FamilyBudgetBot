@@ -62,13 +62,13 @@ func TestForeignReportRefusedInsteadOfSubstitutingOwnReport(t *testing.T) {
 		if planner.request.CurrentUser != scenario.name {
 			t.Fatal("wrong sender identity sent to LLM")
 		}
-		for _, item := range planner.request.RecentExpenses.([]expenses.Expense) {
+		for _, item := range planner.request.RecentExpenses {
 			if item.UserID != scenario.userID {
 				t.Fatal("foreign expenses sent to LLM")
 			}
 		}
 		if position == 1 {
-			conversation := planner.request.Context.(bot.Conversation)
+			conversation := planner.request.Context
 			if len(conversation.Turns) != 1 || conversation.Turns[0].Reply != bot.AccessDeniedReply {
 				t.Fatal("foreign subject lost from follow-up context")
 			}

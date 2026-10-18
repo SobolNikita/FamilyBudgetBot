@@ -11,7 +11,7 @@ import (
 
 func TestForeignRequestsNeverExecuteExpenseOperations(t *testing.T) {
 	for _, subject := range []string{"other", "family"} {
-		for _, action := range []string{"summarize_expenses", "list_expenses", "create_expenses", "update_expense", "delete_expense", "ask_question"} {
+		for _, action := range []string{"summarize_expenses", "list_expenses", "continue_expenses", "create_expenses", "update_expense", "delete_expense", "ask_question"} {
 			reply, state, err := (Engine{}).Apply(context.Background(), expenses.Service{}, 111, Prepared{
 				Text: "Сколько потратила Ева за неделю", Action: llm.Action{Name: action, Subject: subject, Question: "Всего: 999"},
 			})

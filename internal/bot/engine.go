@@ -102,20 +102,6 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 		state.Context.Shown = created
 		state.Context.LastExpense = &created[len(created)-1]
 		reply = strings.Join(lines, "\n")
-	case "create_expense":
-		if action.Amount == nil || action.Category == nil || action.SpentAt == nil {
-			return "", state, fmt.Errorf("%w: нужны сумма, категория и дата", expenses.ErrInvalid)
-		}
-		input := expenses.Input{Amount: *action.Amount, Category: *action.Category, SpentAt: *action.SpentAt}
-		if action.Comment != nil {
-			input.Comment = *action.Comment
-		}
-		expense, err := service.Create(ctx, actor, input)
-		if err != nil {
-			return "", state, err
-		}
-		state.Context.LastExpense = &expense
-		reply = "Добавлено: " + engine.describe(expense)
 	case "update_expense", "delete_expense":
 		id, err := strconv.ParseInt(action.ID, 10, 64)
 		if err != nil || id <= 0 {
@@ -159,26 +145,42 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			state.Context.LastExpense = &expense
 			reply = "Изменено: " + engine.describe(expense)
 		}
-	case "list_expenses":
+	case "list_expenses", "continue_expenses":
+		if action.Name == "continue_expenses" {
+			if state.Context.List == nil {
+				return finish(prepared.Text, "Сначала укажите, какие расходы показать. Например: «покажи расходы за месяц».", state)
+			}
+			if !state.Context.List.HasMore {
+				return finish(prepared.Text, "Больше расходов по этому запросу нет. Чтобы обновить список, укажите период ещё раз.", state)
+			}
+			filter = state.Context.List.Filter
+			filter.Offset = state.Context.List.NextOffset
+		}
 		page, err := service.List(ctx, actor, filter)
 		if err != nil {
 			return "", state, err
 		}
 		state.Context.Shown = page.Items
+		nextOffset := filter.Offset + len(page.Items)
+		savedFilter := filter
+		savedFilter.UserID, savedFilter.Offset = 0, 0
+		state.Context.List = &dialog.ListState{Filter: savedFilter, NextOffset: nextOffset, HasMore: len(page.Items) > 0 && nextOffset < page.Total}
 		for _, item := range page.Items {
 			if state.Context.LastExpense != nil && state.Context.LastExpense.ID == item.ID {
 				fresh := item
 				state.Context.LastExpense = &fresh
 			}
 		}
-		if page.Total == 0 {
+		if action.Name == "continue_expenses" && len(page.Items) == 0 {
+			reply = "Больше расходов по этому запросу нет. Чтобы обновить список, укажите период ещё раз."
+		} else if page.Total == 0 {
 			reply = "За выбранный период расходов нет."
 		} else {
 			lines := []string{fmt.Sprintf("Найдено расходов: %d. Показано: %d.", page.Total, len(page.Items))}
 			for _, expense := range page.Items {
 				lines = append(lines, engine.describe(expense))
 			}
-			if page.Total > action.Offset+len(page.Items) {
+			if state.Context.List.HasMore {
 				lines = append(lines, "Чтобы посмотреть остальные, напишите «покажи ещё».")
 			}
 			reply = strings.Join(lines, "\n")
