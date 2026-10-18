@@ -125,6 +125,54 @@ try {
   await request(`/api/expenses/${created.id}?version=${updated.version}`, 204, { method: 'DELETE' })
   await create()
   assert.equal((await (await request('/api/expenses')).json()).total, 0)
+  compose([
+    'exec',
+    '-T',
+    'db',
+    'psql',
+    '-U',
+    settings.POSTGRES_USER,
+    '-d',
+    settings.POSTGRES_DB,
+    '-v',
+    'ON_ERROR_STOP=1',
+    '-c',
+    "INSERT INTO expenses(user_id,amount,category,spent_at) SELECT 111,1,'еда','2030-01-01' FROM generate_series(1,45); INSERT INTO expenses(user_id,amount,category,spent_at) VALUES(222,1,'другое','2030-01-01');",
+  ])
+  const bulkFilter =
+    'user_id=111&from=2030-01-01&to=2030-01-01&category=' + encodeURIComponent('еда')
+  const selection = await (
+    await request(`/api/expenses/selection?${bulkFilter}&limit=20&offset=20`)
+  ).json()
+  assert.equal(selection.count, 45)
+  const selectedPage = await (await request(`/api/expenses?${bulkFilter}`)).json()
+  await request(`/api/expenses/${selectedPage.items[0].id}`, 200, {
+    method: 'PUT',
+    body: JSON.stringify({ ...input, version: 1, amount: '2.00' }),
+  })
+  await request(`/api/expenses/bulk-delete?${bulkFilter}`, 409, {
+    method: 'POST',
+    body: JSON.stringify({ token: selection.token }),
+  })
+  assert.equal((await (await request(`/api/expenses?${bulkFilter}`)).json()).total, 45)
+  const freshSelection = await (await request(`/api/expenses/selection?${bulkFilter}`)).json()
+  const deletion = await (
+    await request(`/api/expenses/bulk-delete?${bulkFilter}`, 200, {
+      method: 'POST',
+      body: JSON.stringify({ token: freshSelection.token }),
+    })
+  ).json()
+  assert.equal(deletion.deleted, 45)
+  await request(`/api/expenses/bulk-delete?${bulkFilter}`, 409, {
+    method: 'POST',
+    body: JSON.stringify({ token: freshSelection.token }),
+  })
+  const survivor = (await (await request('/api/expenses')).json()).items[0]
+  assert.equal(survivor.user_id, '222')
+  await request(`/api/expenses/${survivor.id}?version=${survivor.version}`, 204, {
+    method: 'DELETE',
+  })
+  console.log('PASS: bulk deletion across pages, optimistic conflict, exact filter and safe replay')
   const secondInput = { ...input, comment: 'removed with participant' }
   await request('/api/expenses', 201, {
     method: 'POST',
