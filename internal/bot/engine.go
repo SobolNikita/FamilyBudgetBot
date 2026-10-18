@@ -82,7 +82,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 	default:
 		return "", state, fmt.Errorf("%w: не удалось определить владельца расходов; уточните запрос", expenses.ErrInvalid)
 	}
-	filter := expenses.Filter{From: action.From, To: action.To, Search: action.Search, Limit: 20, Offset: action.Offset}
+	filter := expenses.Filter{From: action.From, To: action.To, Search: action.Search, SearchAny: action.SearchAny, Limit: 20, Offset: action.Offset}
 	if action.Category != nil {
 		filter.Category = *action.Category
 	}
@@ -187,7 +187,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 		if action.Name == "continue_expenses" && len(page.Items) == 0 {
 			reply = "Больше расходов по этому запросу нет. Чтобы обновить список, укажите период ещё раз."
 		} else if page.Total == 0 {
-			reply = "За выбранный период расходов нет."
+			reply = "По выбранным условиям расходы не найдены."
 		} else {
 			lines := []string{fmt.Sprintf("Найдено расходов: %d. Показано: %d.", page.Total, len(page.Items))}
 			for _, expense := range page.Items {
@@ -198,6 +198,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			}
 			reply = strings.Join(lines, "\n")
 		}
+		reply += searchDescription(filter)
 	case "summarize_expenses":
 		summary, err := service.Summary(ctx, actor, filter)
 		if err != nil {
@@ -211,10 +212,29 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			lines = append(lines, fmt.Sprintf("%s: %s %s", category.Category, category.Amount, engine.Currency))
 		}
 		reply = strings.Join(lines, "\n")
+		if summary.Count == 0 {
+			reply = "По выбранным условиям расходы не найдены."
+		}
+		reply += searchDescription(filter)
 	default:
 		return "", state, fmt.Errorf("%w: неизвестное действие", expenses.ErrInvalid)
 	}
 	return finish(prepared.Text, reply, state)
+}
+
+func searchDescription(filter expenses.Filter) string {
+	terms := filter.SearchAny
+	if filter.Search != "" {
+		terms = []string{filter.Search}
+	}
+	if len(terms) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(terms))
+	for i, term := range terms {
+		quoted[i] = fmt.Sprintf("«%s»", strings.ReplaceAll(term, "\n", " "))
+	}
+	return "\nПоиск по описаниям: " + strings.Join(quoted, ", ") + "."
 }
 
 func selectedExpense(prepared Prepared, actor, id int64) (expenses.Expense, bool) {

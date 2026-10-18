@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,9 @@ type acceptanceExpectation struct {
 	To              []string     `json:"to,omitempty"`
 	Items           []NewExpense `json:"items,omitempty"`
 	CandidateSearch string       `json:"candidate_search,omitempty"`
+	MatchComments   []string     `json:"match_comments,omitempty"`
+	ExcludeComments []string     `json:"exclude_comments,omitempty"`
+	NoPeriod        bool         `json:"no_period,omitempty"`
 }
 
 type acceptanceCase struct {
@@ -64,9 +68,17 @@ func acceptanceCases() []acceptanceCase {
 		{Name: "continue_after_history_trim", Request: request("покажи ещё"), Expected: acceptanceExpectation{Tool: "continue_expenses", Subject: "self"}},
 		{Name: "new_period_replaces_cursor", Request: request("теперь покажи все мои расходы за май 2026 года"), Expected: acceptanceExpectation{Tool: "list_expenses", Subject: "self", From: "2026-05-01", To: []string{"2026-05-31"}}},
 		{Name: "gift_recipient_is_not_owner", Request: request("я купил подарок Еве за 20"), Expected: create(NewExpense{Amount: "20", Category: "покупки", SpentAt: "2026-06-15"})},
+		{Name: "fast_food_today", Request: request("Сколько я потратил на Фаст фуд за сегодня"), Expected: acceptanceExpectation{Tool: "summarize_expenses", Subject: "self", Category: "еда", From: "2026-06-15", To: []string{"2026-06-15"}, MatchComments: []string{"Бургер", "Картошка фри", "Картофель фри"}, ExcludeComments: []string{"Чипсы", "Кофе", "Роллы"}}},
+		{Name: "fast_food_without_recent_expenses", Request: request("сколько я потратил на фастфуд за всё время"), Expected: acceptanceExpectation{Tool: "summarize_expenses", Subject: "self", Category: "еда", NoPeriod: true, MatchComments: []string{"Бургер", "Картошка фри"}, ExcludeComments: []string{"Чипсы", "Кофе"}}},
 	}
 	for i := range cases {
 		switch cases[i].Name {
+		case "fast_food_today":
+			cases[i].Request.Context.Turns = []dialog.Turn{{Text: "Сколько я потратил на фаст фуд сегодня", Reply: "Всего: 0 RUB · расходов: 0"}}
+			cases[i].Request.RecentExpenses = []expenses.Expense{
+				{ID: 201, UserID: 111, Amount: "3.60", Category: "еда", SpentAt: "2026-06-15", Comment: "Бургер", Version: 1},
+				{ID: 202, UserID: 111, Amount: "5.00", Category: "еда", SpentAt: "2026-06-15", Comment: "Картошка фри", Version: 1},
+			}
 		case "correct_last_amount":
 			cases[i].Request.Context.LastExpense = &coffee
 		case "delete_unique_taxi":
@@ -117,6 +129,25 @@ func acceptanceProblems(action Action, expected acceptanceExpectation) []string 
 	if len(expected.To) > 0 {
 		check(slices.Contains(expected.To, action.To), "wrong period end")
 	}
+	if expected.NoPeriod {
+		check(action.From == "" && action.To == "", "unrequested period")
+	}
+	if len(expected.MatchComments) > 0 {
+		check(action.Search == "" && len(action.SearchAny) > 0, "semantic group requires search alternatives")
+		_, err := expenses.ValidateFilter(expenses.Filter{Search: action.Search, SearchAny: action.SearchAny})
+		check(err == nil, "invalid search alternatives")
+		matches := func(comment string) bool {
+			return slices.ContainsFunc(action.SearchAny, func(term string) bool {
+				return strings.Contains(strings.ToLower(comment), strings.ToLower(term))
+			})
+		}
+		for _, comment := range expected.MatchComments {
+			check(matches(comment), "search misses "+comment)
+		}
+		for _, comment := range expected.ExcludeComments {
+			check(!matches(comment), "search includes unrelated "+comment)
+		}
+	}
 	if expected.Tool == "list_expenses" {
 		check(action.Offset == 0, "new list must start at the beginning")
 	}
@@ -124,7 +155,7 @@ func acceptanceProblems(action Action, expected acceptanceExpectation) []string 
 		check(action.Question != "", "empty clarification/refusal")
 	}
 	if expected.Tool == "continue_expenses" {
-		check(action.From == "" && action.To == "" && action.Offset == 0 && action.Category == nil && action.Search == "", "continuation must not invent filters or offset")
+		check(action.From == "" && action.To == "" && action.Offset == 0 && action.Category == nil && action.Search == "" && len(action.SearchAny) == 0, "continuation must not invent filters or offset")
 	}
 	if expected.Items != nil {
 		check(len(action.Expenses) == len(expected.Items), "wrong number of expenses")

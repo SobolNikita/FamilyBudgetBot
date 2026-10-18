@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,6 +16,35 @@ type pagesRepo struct {
 	expenses.Repository
 	filters []expenses.Filter
 	total   int
+}
+
+func TestSearchAlternativesSurvivePaginationAndRestart(t *testing.T) {
+	repo := &pagesRepo{total: 45}
+	service := expenses.Service{Repo: repo}
+	terms := []string{"бургер", "картошка фри"}
+	var state State
+	for page := 0; page < 3; page++ {
+		action := llm.Action{Name: "continue_expenses", Subject: "self"}
+		if page == 0 {
+			action.Name, action.SearchAny = "list_expenses", terms
+		}
+		_, next, err := (Engine{}).Apply(context.Background(), service, 111, Prepared{Action: action, State: state})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(next)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state = State{}
+		if err := json.Unmarshal(data, &state); err != nil {
+			t.Fatal(err)
+		}
+		got := repo.filters[page]
+		if !slices.Equal(got.SearchAny, terms) || got.UserID != 111 || got.Offset != page*20 {
+			t.Fatalf("continuation lost alternatives: %+v", got)
+		}
+	}
 }
 
 func (repo *pagesRepo) List(_ context.Context, filter expenses.Filter) (expenses.Page, error) {
