@@ -30,8 +30,7 @@ func (planner *blockedPlanner) Plan(ctx context.Context, request llm.Request) (l
 			return llm.Action{}, ctx.Err()
 		}
 	}
-	amount, category, spentAt := "5.00", "еда", "2026-10-17"
-	return llm.Action{Name: "create_expense", Subject: "self", Amount: &amount, Category: &category, SpentAt: &spentAt}, nil
+	return llm.Action{Name: "create_expenses", Subject: "self", Expenses: []llm.NewExpense{{Amount: "5.00", Category: "еда", SpentAt: "2026-10-17"}}}, nil
 }
 
 func TestRunnerAcknowledgesBurstWhileLLMIsBlocked(t *testing.T) {

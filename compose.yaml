@@ -1,9 +1,9 @@
 name: family-expenses
 
 x-app: &app
-  image: family-expenses:local
+  image: ${APP_IMAGE:-family-expenses:local}
   build: .
-  env_file: .env
+  env_file: ${APP_ENV_FILE:-.env}
   environment:
     DATABASE_URL: postgres://db:5432/${POSTGRES_DB:-family_expenses}?sslmode=disable
     PGUSER: ${POSTGRES_USER:-family}

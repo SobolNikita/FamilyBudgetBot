@@ -588,6 +588,28 @@ try {
   assert.equal(createKeys[0], createKeys[1])
   assert.match(createKeys[0], /^[0-9a-f]{32}$/)
   assert.equal(created.size, 1)
+  await evaluate(`(() => {
+    const input = document.querySelectorAll('.filters input[type=date]')[0];
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '2026-01-01');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`)
+  await wait(
+    `${ready} && document.querySelector('.filters input[type=date]').value === '2026-01-01'`,
+  )
+  await evaluate(`(() => {
+    const input = document.querySelectorAll('.filters input[type=date]')[1];
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`)
+  await wait(`${ready} && document.querySelectorAll('.filters input[type=date]')[1].value === ''`)
+  assert.equal(
+    await evaluate(`document.querySelector('.stat-foot').textContent`),
+    '01.01.2026 — без конечной даты',
+  )
+  const openPeriodRequest = requests
+    .filter((path) => path.startsWith('/api/reports/summary?'))
+    .at(-1)
+  assert.equal(new URL(openPeriodRequest, 'http://localhost').searchParams.has('to'), false)
   failExpenses = true
   await evaluate(`document.querySelector('.shared-expenses').click()`)
   await wait(`!!document.querySelector('.alert.error') && !document.querySelector('.loader')`)
