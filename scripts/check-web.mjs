@@ -19,6 +19,9 @@ let editWrites = 0
 let memberDeleted = false
 let memberRestored = false
 let memberDeleteCalls = 0
+let bulkMode = 'success'
+let bulkDeleteCalls = 0
+const bulkRequests = []
 await mkdir(resolve('.cache'), { recursive: true })
 const server = createServer(async (request, response) => {
   response.setHeader(
@@ -29,6 +32,32 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost')
   if (url.pathname.startsWith('/api/')) {
     requests.push(url.pathname + url.search)
+    if (url.pathname === '/api/expenses/selection') {
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({ token: 'confirmed-snapshot', count: empty ? 0 : 400 }))
+      return
+    }
+    if (url.pathname === '/api/expenses/bulk-delete' && request.method === 'POST') {
+      let body = ''
+      for await (const chunk of request) body += chunk
+      bulkRequests.push({ url: url.toString(), body: JSON.parse(body) })
+      bulkDeleteCalls++
+      response.setHeader('Content-Type', 'application/json')
+      if (bulkMode === 'conflict') {
+        response.writeHead(409)
+        response.end(
+          JSON.stringify({ error: 'Набор расходов изменился. Выберите расходы заново.' }),
+        )
+      } else if (bulkMode === 'lost') {
+        empty = true
+        response.writeHead(504)
+        response.end(JSON.stringify({ error: 'Ответ потерян. Обновите список расходов.' }))
+      } else {
+        empty = true
+        response.end(JSON.stringify({ deleted: 400 }))
+      }
+      return
+    }
     if (url.pathname === '/api/users/111' && request.method === 'DELETE') {
       memberDeleteCalls++
       memberDeleted = true
@@ -729,6 +758,30 @@ try {
   )
   await evaluate(`document.querySelector('.manage-members').click()`)
   await wait(`document.querySelectorAll('dialog .member-management-list li').length===2`)
+  for (const width of [320, 1440]) {
+    await command('Emulation.setDeviceMetricsOverride', {
+      width,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    })
+    assert.equal(
+      await evaluate(`(() => {
+      const button = document.querySelector('dialog .modal-header button').getBoundingClientRect();
+      const icon = document.querySelector('dialog .modal-header button svg').getBoundingClientRect();
+      return button.width === 44 && button.height === 44 && icon.width === 20 && icon.height === 20 &&
+        Math.abs(button.x + button.width/2 - icon.x - icon.width/2) < 1 &&
+        Math.abs(button.y + button.height/2 - icon.y - icon.height/2) < 1;
+    })()`),
+      true,
+      `close icon centered at ${width}`,
+    )
+    const screenshot = await command('Page.captureScreenshot', { format: 'png' })
+    await writeFile(
+      resolve(`.cache/members-close-${width}.png`),
+      Buffer.from(screenshot.data, 'base64'),
+    )
+  }
   await evaluate(`document.querySelector('dialog .member-management-list button').click()`)
   await wait(`document.querySelector('dialog').textContent.includes('безвозвратно')`)
   assert.equal(memberDeleteCalls, 0)
@@ -752,6 +805,104 @@ try {
   console.log(
     'PASS: member removal requires confirmation; restoration does not restore old membership data',
   )
+  // A single selection covers 400 records, not just the 20 rendered rows.
+  await evaluate(`document.querySelector('.bulk-select input').click()`)
+  await wait(`!!document.querySelector('.bulk-toolbar .danger')`)
+  assert.equal(
+    await evaluate(`document.querySelector('.bulk-toolbar .danger').textContent`),
+    'Удалить выбранные (400)',
+  )
+  await jump(2)
+  await wait(`${ready} && new URL(location.href).searchParams.get('offset') === '20'`)
+  assert.equal(
+    await evaluate(`document.querySelector('.bulk-select input').checked`),
+    true,
+    'selection survives pagination',
+  )
+  await evaluate(`document.querySelector('.bulk-toolbar .danger').click()`)
+  await wait(`!!document.querySelector('dialog[open]')`)
+  assert.equal(bulkDeleteCalls, 0)
+  await evaluate(`document.querySelector('dialog .modal-actions .secondary').click()`)
+  await wait(`!document.querySelector('dialog')`)
+  assert.equal(bulkDeleteCalls, 0, 'cancel must not delete')
+  await evaluate(
+    `document.querySelector('.filters select').value = '222'; document.querySelector('.filters select').dispatchEvent(new Event('change', {bubbles:true}))`,
+  )
+  await wait(`${ready} && document.querySelector('.filters select').value === '222'`)
+  assert.equal(
+    await evaluate(`document.querySelector('.bulk-select input').checked`),
+    false,
+    'filter changes reset selection',
+  )
+  for (const mode of ['conflict', 'lost', 'success']) {
+    bulkMode = mode
+    empty = false
+    await reloadPage()
+    await wait(ready)
+    await evaluate(`document.querySelector('.bulk-select input').click()`)
+    await wait(`!!document.querySelector('.bulk-toolbar .danger')`)
+    await command('Emulation.setDeviceMetricsOverride', {
+      width: 320,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    })
+    assert.equal(
+      await evaluate(`document.documentElement.scrollWidth <= innerWidth`),
+      true,
+      'selected toolbar fits mobile',
+    )
+    await evaluate(`document.querySelector('.bulk-toolbar').scrollIntoView({block:'center'})`)
+    const screenshot = await command('Page.captureScreenshot', { format: 'png' })
+    if (mode === 'success')
+      await writeFile(
+        resolve('.cache/bulk-selection-320.png'),
+        Buffer.from(screenshot.data, 'base64'),
+      )
+    await evaluate(`document.querySelector('.bulk-toolbar .danger').click()`)
+    await wait(`!!document.querySelector('dialog[open]')`)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('dialog').textContent.includes('400') && document.querySelector('dialog').textContent.includes('Ева')`,
+      ),
+      true,
+    )
+    await evaluate(`document.querySelector('dialog .modal-actions .danger').click()`)
+    if (mode === 'success') {
+      await wait(
+        `${ready} && !document.querySelector('dialog') && document.querySelector('.alert.success').textContent.includes('400')`,
+      )
+    } else {
+      await wait(`!!document.querySelector('dialog .alert.error')`)
+      assert.equal(
+        await evaluate(`!!document.querySelector('dialog .modal-actions .danger')`),
+        false,
+        'no blind retry',
+      )
+      await evaluate(`document.querySelector('dialog .modal-actions .primary').click()`)
+      await wait(`${ready} && !document.querySelector('dialog')`)
+      assert.equal(await evaluate(`document.querySelector('.bulk-select input').checked`), false)
+    }
+  }
+  assert.equal(bulkDeleteCalls, 3, 'exactly one write per confirmation')
+  for (const request of bulkRequests) {
+    assert.equal(request.body.token, 'confirmed-snapshot')
+    assert.equal(new URL(request.url).searchParams.get('user_id'), '222')
+  }
+  empty = false
+  await reloadPage()
+  await wait(ready)
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1440,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false,
+  })
+  console.log(
+    'PASS: select all pages, filter reset, cancellation, bulk deletion, conflict and lost response; centered close icon',
+  )
+  await evaluate(`document.querySelector('.shared-expenses').click()`)
+  await wait(`${ready} && document.querySelector('.filters select').value === ''`)
   await evaluate(`(() => {
     const input = document.querySelectorAll('.filters input[type=date]')[0];
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '2026-01-01');
