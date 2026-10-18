@@ -775,7 +775,9 @@ try {
     .at(-1)
   assert.equal(new URL(openPeriodRequest, 'http://localhost').searchParams.has('to'), false)
   failExpenses = true
-  await evaluate(`Array.from(document.querySelectorAll('.member')).find(e=>e.textContent.includes('Ева')).click()`)
+  await evaluate(
+    `Array.from(document.querySelectorAll('.member')).find(e=>e.textContent.includes('Ева')).click()`,
+  )
   await wait(`!!document.querySelector('.alert.error') && !document.querySelector('.loader')`)
   assert.equal(await evaluate(`document.querySelector('.total-value').textContent`), '—')
   assert.equal(await evaluate(`document.querySelectorAll('.breakdown-item').length`), 0)
