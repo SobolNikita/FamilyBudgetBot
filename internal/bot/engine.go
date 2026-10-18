@@ -30,10 +30,10 @@ type Engine struct{ Currency string }
 const AccessDeniedReply = "Здесь можно посмотреть и изменить только свои расходы. Общие расходы семьи доступны в веб-панели."
 
 func Confirmation(text string) string {
-	switch strings.ToLower(strings.Trim(strings.TrimSpace(text), ".! ")) {
-	case "да", "подтверждаю", "да, удали", "да удали", "удали":
+	switch strings.Join(strings.Fields(strings.ToLower(strings.Trim(strings.TrimSpace(text), ".! "))), " ") {
+	case "да", "подтверждаю", "да, удали", "да удали", "удали", "да, конечно", "да конечно", "да, удали его", "да удали его", "подтверждаю удаление":
 		return "confirm"
-	case "нет", "отмена", "отмени", "не надо":
+	case "нет", "отмена", "отмени", "не надо", "не удаляй", "нет, не удаляй", "нет не удаляй", "оставь", "оставь его", "передумал", "передумала":
 		return "cancel"
 	}
 	return ""
@@ -53,6 +53,14 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 				return "", state, err
 			}
 			reply = "Расход удалён."
+			shown := make([]expenses.Expense, 0, len(state.Context.Shown))
+			for _, item := range state.Context.Shown {
+				if item.ID != state.Pending.ID {
+					shown = append(shown, item)
+				}
+			}
+			state.Context.Shown = shown
+			state.Context.Turns = nil
 			if state.Context.LastExpense != nil && state.Context.LastExpense.ID == state.Pending.ID {
 				state.Context.LastExpense = nil
 			}
@@ -61,7 +69,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			state.Pending = nil
 			reply = "Удаление отменено."
 		default:
-			reply = "Удалить этот расход? Напишите «да» для удаления или «нет», чтобы его оставить."
+			reply = "Сначала завершите удаление: напишите «да» или «не удаляй». Новая покупка из этого сообщения не записана; после отмены пришлите её ещё раз."
 		}
 		return finish(prepared.Text, reply, state)
 	}
@@ -160,11 +168,16 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 		if err != nil {
 			return "", state, err
 		}
+		if action.Name == "continue_expenses" && (state.Context.List.Revision == 0 || page.Revision != state.Context.List.Revision) {
+			state.Context.List = nil
+			state.Context.Shown = nil
+			return finish(prepared.Text, "Список расходов изменился. Чтобы не пропустить записи, начните просмотр заново: укажите период ещё раз.", state)
+		}
 		state.Context.Shown = page.Items
 		nextOffset := filter.Offset + len(page.Items)
 		savedFilter := filter
 		savedFilter.UserID, savedFilter.Offset = 0, 0
-		state.Context.List = &dialog.ListState{Filter: savedFilter, NextOffset: nextOffset, HasMore: len(page.Items) > 0 && nextOffset < page.Total}
+		state.Context.List = &dialog.ListState{Filter: savedFilter, NextOffset: nextOffset, HasMore: len(page.Items) > 0 && nextOffset < page.Total, Revision: page.Revision}
 		for _, item := range page.Items {
 			if state.Context.LastExpense != nil && state.Context.LastExpense.ID == item.ID {
 				fresh := item

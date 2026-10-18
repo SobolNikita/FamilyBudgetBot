@@ -1,12 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import {
   api,
-  APIError,
-  requestKey,
   money,
   query,
   type Expense,
-  type ExpenseInput,
   type Filters,
   type Page,
   type Settings,
@@ -15,6 +12,8 @@ import {
 } from './api'
 import { readView, viewURL, type ViewState } from './viewState'
 import Pagination from './Pagination'
+import ExpenseForm from './ExpenseForm'
+import Modal from './Modal'
 import ThemePicker from './ThemePicker'
 
 const emptyFilters: Filters = { user_id: '', from: '', to: '', category: '' }
@@ -573,206 +572,6 @@ export default function App() {
         </Modal>
       )}
     </div>
-  )
-}
-
-function ExpenseForm({
-  expense,
-  users,
-  categories,
-  settings,
-  defaultUserID,
-  onClose,
-  onSaved,
-}: {
-  expense: Expense | 'new'
-  users: User[]
-  categories: string[]
-  settings: Settings
-  defaultUserID: string
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const [form, setForm] = useState<ExpenseInput>(
-    expense === 'new'
-      ? {
-          user_id: users.some((user) => user.id === defaultUserID)
-            ? defaultUserID
-            : users[0]?.id || '',
-          amount: '',
-          category: 'другое',
-          spent_at: settings.today,
-          comment: '',
-          version: 0,
-        }
-      : {
-          user_id: expense.user_id,
-          amount: expense.amount,
-          category: expense.category,
-          spent_at: expense.spent_at,
-          comment: expense.comment,
-          version: expense.version,
-        },
-  )
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [uncertain, setUncertain] = useState(false)
-  const submission = useRef<{ key: string; body: string } | null>(null)
-  const inFlight = useRef(false)
-  function field(key: keyof ExpenseInput, value: string) {
-    setForm((current) => ({ ...current, [key]: value }))
-  }
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    if (inFlight.current) return
-    inFlight.current = true
-    setBusy(true)
-    setError('')
-    try {
-      const body = JSON.stringify({ ...form, amount: form.amount.replace(',', '.') })
-      if (!submission.current || (!uncertain && submission.current.body !== body))
-        submission.current = { key: requestKey(), body }
-      await api<Expense>(expense === 'new' ? '/expenses' : `/expenses/${expense.id}`, {
-        method: expense === 'new' ? 'POST' : 'PUT',
-        headers: expense === 'new' ? { 'Idempotency-Key': submission.current.key } : undefined,
-        body: submission.current.body,
-      })
-      onSaved()
-    } catch (failure) {
-      setError((failure as Error).message)
-      setUncertain(
-        failure instanceof APIError &&
-          (failure.status === 0 || failure.status === 408 || failure.status >= 500),
-      )
-    } finally {
-      inFlight.current = false
-      setBusy(false)
-    }
-  }
-  return (
-    <Modal
-      title={expense === 'new' ? 'Новый расход' : 'Редактирование расхода'}
-      onClose={() => {
-        if (!busy) onClose()
-      }}
-    >
-      <form onSubmit={submit}>
-        <p className="muted">Небольшая запись — полная картина бюджета.</p>
-        {error && (
-          <div className="alert error" role="alert">
-            {error}
-          </div>
-        )}
-        {uncertain && (
-          <p role="status">
-            Не удалось подтвердить сохранение. Можно нажать «Сохранить» ещё раз с теми же данными
-            или закрыть форму и проверить список расходов.
-          </p>
-        )}
-        <fieldset className="form-fields" disabled={busy || uncertain}>
-          <div className="form-grid">
-            <label>
-              Сумма, {settings.currency}
-              <input
-                autoFocus
-                required
-                inputMode="decimal"
-                placeholder="0,00"
-                pattern="[0-9]+([.,][0-9]{1,2})?"
-                value={form.amount}
-                onChange={(event) => field('amount', event.target.value)}
-              />
-            </label>
-            <label>
-              Дата
-              <input
-                type="date"
-                required
-                value={form.spent_at}
-                onChange={(event) => field('spent_at', event.target.value)}
-              />
-            </label>
-            <label>
-              Участник
-              <select
-                required
-                value={form.user_id}
-                onChange={(event) => field('user_id', event.target.value)}
-              >
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.display_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Категория
-              <select
-                value={form.category}
-                onChange={(event) => field('category', event.target.value)}
-              >
-                {categories.map((category) => (
-                  <option key={category}>{category}</option>
-                ))}
-              </select>
-            </label>
-            <label className="full-width">
-              Комментарий
-              <textarea
-                maxLength={1000}
-                rows={3}
-                placeholder="Например, продукты на неделю"
-                value={form.comment}
-                onChange={(event) => field('comment', event.target.value)}
-              />
-            </label>
-          </div>
-        </fieldset>
-        <div className="modal-actions">
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            Отмена
-          </button>
-          <button className="primary" disabled={busy}>
-            {busy ? 'Сохраняем…' : 'Сохранить расход'}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-}) {
-  const reference = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
-    reference.current?.showModal()
-  }, [])
-  return (
-    <dialog
-      ref={reference}
-      className="modal"
-      aria-labelledby="modal-title"
-      onCancel={(event) => {
-        event.preventDefault()
-        onClose()
-      }}
-    >
-      <div className="modal-header">
-        <h2 id="modal-title">{title}</h2>
-        <button aria-label="Закрыть" onClick={onClose}>
-          ×
-        </button>
-      </div>
-      {children}
-    </dialog>
   )
 }
 

@@ -13,6 +13,9 @@ let configDate = '2026-10-17'
 let loseCreateResponse = true
 const created = new Map()
 const createKeys = []
+let editRecord = null
+let loseEditResponse = false
+let editWrites = 0
 await mkdir(resolve('.cache'), { recursive: true })
 const server = createServer(async (request, response) => {
   response.setHeader(
@@ -23,6 +26,29 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost')
   if (url.pathname.startsWith('/api/')) {
     requests.push(url.pathname + url.search)
+    if (editRecord && url.pathname === `/api/expenses/${editRecord.id}`) {
+      response.setHeader('Content-Type', 'application/json')
+      if (request.method === 'PUT') {
+        let body = ''
+        for await (const chunk of request) body += chunk
+        const input = JSON.parse(body)
+        if (input.version !== editRecord.version) {
+          response.writeHead(409)
+          response.end(JSON.stringify({ error: 'Данные уже изменились' }))
+          return
+        }
+        editRecord = { ...editRecord, ...input, version: input.version + 1 }
+        editWrites++
+        if (loseEditResponse) {
+          loseEditResponse = false
+          response.writeHead(504)
+          response.end(JSON.stringify({ error: 'Ответ потерян после сохранения' }))
+          return
+        }
+      }
+      response.end(JSON.stringify(editRecord))
+      return
+    }
     if (url.pathname === '/api/expenses' && request.method === 'POST') {
       let body = ''
       for await (const chunk of request) body += chunk
@@ -117,30 +143,78 @@ try {
   for (let attempt = 0; attempt < 100; attempt++) {
     if (launchError) throw launchError
     try {
-      target = (await (await fetch('http://127.0.0.1:9239/json')).json()).find(
-        (item) => item.type === 'page',
-      )
+      target = (
+        await (
+          await fetch('http://127.0.0.1:9239/json', { signal: AbortSignal.timeout(1000) })
+        ).json()
+      ).find((item) => item.type === 'page')
       if (target) break
     } catch {}
     await delay(100)
   }
   assert.ok(target, 'browser debugging endpoint unavailable')
   socket = new WebSocket(target.webSocketDebuggerUrl)
-  await new Promise((resolve) => socket.addEventListener('open', resolve, { once: true }))
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Browser WebSocket open timed out')), 10000)
+    socket.addEventListener(
+      'open',
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      { once: true },
+    )
+    socket.addEventListener(
+      'error',
+      () => {
+        clearTimeout(timer)
+        reject(new Error('Browser WebSocket failed'))
+      },
+      { once: true },
+    )
+    socket.addEventListener(
+      'close',
+      () => {
+        clearTimeout(timer)
+        reject(new Error('Browser WebSocket closed before opening'))
+      },
+      { once: true },
+    )
+  })
   let sequence = 0
   const pending = new Map()
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(event.data)
     if (message.id && pending.has(message.id)) {
-      pending.get(message.id)(message)
+      pending.get(message.id).resolve(message)
       pending.delete(message.id)
     }
   })
+  const rejectPending = () => {
+    for (const operation of pending.values())
+      operation.reject(new Error('Browser connection closed'))
+    pending.clear()
+  }
+  socket.addEventListener('close', rejectPending)
+  socket.addEventListener('error', rejectPending)
   async function command(method, params = {}) {
     const id = ++sequence
-    const result = await new Promise((resolve) => {
-      pending.set(id, resolve)
-      socket.send(JSON.stringify({ id, method, params }))
+    const result = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id)
+        reject(new Error(`Browser command timed out: ${method}`))
+      }, 10000)
+      const finish = (callback) => (value) => {
+        clearTimeout(timer)
+        pending.delete(id)
+        callback(value)
+      }
+      pending.set(id, { resolve: finish(resolve), reject: finish(reject) })
+      try {
+        socket.send(JSON.stringify({ id, method, params }))
+      } catch (error) {
+        pending.get(id).reject(error)
+      }
     })
     assert.equal(result.error, undefined)
     return result.result
@@ -588,6 +662,42 @@ try {
   assert.equal(createKeys[0], createKeys[1])
   assert.match(createKeys[0], /^[0-9a-f]{32}$/)
   assert.equal(created.size, 1)
+  editRecord = {
+    id: '1',
+    user_id: '222',
+    amount: '9.00',
+    category: 'еда',
+    spent_at: '2026-10-16',
+    comment: 'Изменено другим участником',
+    version: 2,
+  }
+  await evaluate(`document.querySelector('.row-actions button').click()`)
+  await wait(`!!document.querySelector('dialog[open]')`)
+  await evaluate(`document.querySelector('dialog form').requestSubmit()`)
+  await wait(`!!document.querySelector('dialog .alert.error')`)
+  assert.equal(
+    await evaluate(`document.querySelector('dialog .modal-actions .primary').disabled`),
+    true,
+  )
+  await evaluate(
+    `Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Загрузить актуальную запись').click()`,
+  )
+  await wait(`document.querySelector('dialog').textContent.includes('Изменено другим участником')`)
+  await evaluate(
+    `Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Оставить мой черновик для проверки').click()`,
+  )
+  assert.equal(await evaluate(`document.querySelector('dialog input').value`), '5.00')
+  loseEditResponse = true
+  await evaluate(`document.querySelector('dialog form').requestSubmit()`)
+  await wait(`document.querySelector('dialog').textContent.includes('Ответ на изменение потерян')`)
+  await evaluate(
+    `Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Загрузить актуальную запись').click()`,
+  )
+  await wait(`${ready} && !document.querySelector('dialog')`)
+  assert.equal(editWrites, 1, 'lost PUT response must not write twice')
+  console.log(
+    'PASS: conflicting PUT keeps draft; lost PUT response is reconciled without another write',
+  )
   await evaluate(`(() => {
     const input = document.querySelectorAll('.filters input[type=date]')[0];
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '2026-01-01');

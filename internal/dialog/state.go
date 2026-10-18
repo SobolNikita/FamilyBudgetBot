@@ -6,6 +6,7 @@ import "familyexpenses/internal/expenses"
 type Turn struct {
 	Text  string `json:"text"`
 	Reply string `json:"reply"`
+	Date  string `json:"date,omitempty"`
 }
 
 type Conversation struct {
@@ -21,6 +22,7 @@ type ListState struct {
 	Filter     expenses.Filter `json:"filter"`
 	NextOffset int             `json:"next_offset"`
 	HasMore    bool            `json:"has_more"`
+	Revision   int64           `json:"revision"`
 }
 
 type Pending struct {
