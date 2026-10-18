@@ -25,11 +25,11 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	config := Config{DatabaseURL: os.Getenv("DATABASE_URL"), HTTPAddr: value("HTTP_ADDR", ":8080"), WebDir: value("WEB_DIR", "web/dist"), Currency: value("FAMILY_CURRENCY", "BYN"), TelegramToken: os.Getenv("TELEGRAM_BOT_TOKEN"), LLMBaseURL: value("LLM_BASE_URL", "https://api.openai.com/v1"), LLMKey: os.Getenv("LLM_API_KEY"), LLMModel: os.Getenv("LLM_MODEL")}
+	config := Config{DatabaseURL: os.Getenv("DATABASE_URL"), HTTPAddr: value("HTTP_ADDR", ":8080"), WebDir: value("WEB_DIR", "web/dist"), Currency: value("FAMILY_CURRENCY", "RUB"), TelegramToken: os.Getenv("TELEGRAM_BOT_TOKEN"), LLMBaseURL: value("LLM_BASE_URL", "https://api.openai.com/v1"), LLMKey: os.Getenv("LLM_API_KEY"), LLMModel: os.Getenv("LLM_MODEL")}
 	if config.DatabaseURL == "" {
 		return config, errors.New("DATABASE_URL is required")
 	}
-	location, err := time.LoadLocation(value("FAMILY_TIMEZONE", "Europe/Minsk"))
+	location, err := time.LoadLocation(value("FAMILY_TIMEZONE", "Europe/Moscow"))
 	if err != nil {
 		return config, errors.New("invalid FAMILY_TIMEZONE")
 	}

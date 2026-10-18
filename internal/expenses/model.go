@@ -17,11 +17,14 @@ var (
 	ErrNotFound = errors.New("расход не найден")
 	ErrConflict = errors.New("расход уже изменён; обновите данные и повторите действие")
 	ErrInvalid  = errors.New("некорректные данные")
+	ErrGone     = errors.New("данные операции удалены вместе с участником")
 )
 
 type User struct {
-	ID          int64  `json:"id,string"`
-	DisplayName string `json:"display_name"`
+	ID          int64      `json:"id,string"`
+	DisplayName string     `json:"display_name"`
+	Version     int        `json:"version"`
+	RemovedAt   *time.Time `json:"removed_at,omitempty"`
 }
 
 type Expense struct {
@@ -37,12 +40,13 @@ type Expense struct {
 }
 
 type Input struct {
-	UserID   int64  `json:"user_id,string"`
-	Amount   string `json:"amount"`
-	Category string `json:"category"`
-	SpentAt  string `json:"spent_at"`
-	Comment  string `json:"comment"`
-	Version  int    `json:"version"`
+	IdempotencyKey string `json:"-"`
+	UserID         int64  `json:"user_id,string"`
+	Amount         string `json:"amount"`
+	Category       string `json:"category"`
+	SpentAt        string `json:"spent_at"`
+	Comment        string `json:"comment"`
+	Version        int    `json:"version"`
 }
 
 type Filter struct {
@@ -56,8 +60,9 @@ type Filter struct {
 }
 
 type Page struct {
-	Items []Expense `json:"items"`
-	Total int       `json:"total"`
+	Items    []Expense `json:"items"`
+	Total    int       `json:"total"`
+	Revision int64     `json:"-"`
 }
 
 type CategoryTotal struct {
@@ -113,8 +118,11 @@ func ValidCategory(category string) bool {
 }
 
 func ValidateFilter(filter Filter) (Filter, error) {
+	if strings.ContainsRune(filter.Search, 0) {
+		return filter, fmt.Errorf("%w: поиск содержит недопустимый символ", ErrInvalid)
+	}
 	if filter.UserID < 0 || filter.Offset < 0 || filter.Offset > 1000000 || filter.Limit < 0 || filter.Limit > 100 {
-		return filter, fmt.Errorf("%w: неверная пагинация или участник", ErrInvalid)
+		return filter, fmt.Errorf("%w: не удалось открыть выбранную страницу; обновите список расходов", ErrInvalid)
 	}
 	if filter.Limit == 0 {
 		filter.Limit = 25
@@ -139,7 +147,10 @@ func ValidateFilter(filter Filter) (Filter, error) {
 }
 
 func (service Service) validate(input Input, actor int64) (Input, error) {
-	if actor != 0 {
+	if err := ValidateActor(actor); err != nil {
+		return input, err
+	}
+	if actor != FamilyActor {
 		input.UserID = actor
 	}
 	if input.UserID <= 0 {
@@ -154,9 +165,12 @@ func (service Service) validate(input Input, actor int64) (Input, error) {
 		return input, fmt.Errorf("%w: неизвестная категория", ErrInvalid)
 	}
 	if !validDate(input.SpentAt) {
-		return input, fmt.Errorf("%w: неверная дата расхода", ErrInvalid)
+		return input, fmt.Errorf("%w: проверьте дату расхода", ErrInvalid)
 	}
 	input.Comment = strings.TrimSpace(input.Comment)
+	if strings.ContainsRune(input.Comment, 0) || !utf8.ValidString(input.Comment) {
+		return input, fmt.Errorf("%w: комментарий содержит недопустимый символ", ErrInvalid)
+	}
 	if utf8.RuneCountInString(input.Comment) > 1000 {
 		return input, fmt.Errorf("%w: комментарий длиннее 1000 символов", ErrInvalid)
 	}
@@ -182,20 +196,26 @@ func (service Service) Update(ctx context.Context, actor, id int64, input Input)
 		return Expense{}, err
 	}
 	if input.Version < 1 || id <= 0 {
-		return Expense{}, fmt.Errorf("%w: необходимы ID и версия расхода", ErrInvalid)
+		return Expense{}, fmt.Errorf("%w: обновите список и выберите расход ещё раз", ErrInvalid)
 	}
 	return service.Repo.Update(ctx, actor, id, input)
 }
 
 func (service Service) Delete(ctx context.Context, actor, id int64, version int) error {
+	if err := ValidateActor(actor); err != nil {
+		return err
+	}
 	if id <= 0 || version < 1 {
-		return fmt.Errorf("%w: необходимы ID и версия расхода", ErrInvalid)
+		return fmt.Errorf("%w: обновите список и выберите расход ещё раз", ErrInvalid)
 	}
 	return service.Repo.Delete(ctx, actor, id, version)
 }
 
 func (service Service) List(ctx context.Context, actor int64, filter Filter) (Page, error) {
-	if actor != 0 {
+	if err := ValidateActor(actor); err != nil {
+		return Page{}, err
+	}
+	if actor != FamilyActor {
 		filter.UserID = actor
 	}
 	filter, err := ValidateFilter(filter)
@@ -206,7 +226,10 @@ func (service Service) List(ctx context.Context, actor int64, filter Filter) (Pa
 }
 
 func (service Service) Summary(ctx context.Context, actor int64, filter Filter) (Summary, error) {
-	if actor != 0 {
+	if err := ValidateActor(actor); err != nil {
+		return Summary{}, err
+	}
+	if actor != FamilyActor {
 		filter.UserID = actor
 	}
 	filter, err := ValidateFilter(filter)

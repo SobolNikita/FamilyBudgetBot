@@ -16,7 +16,7 @@ type memoryRepo struct {
 }
 
 func (repo *memoryRepo) Get(_ context.Context, actor, id int64) (expenses.Expense, error) {
-	if repo.deleted || id != repo.item.ID || (actor != 0 && actor != repo.item.UserID) {
+	if repo.deleted || id != repo.item.ID || (actor != expenses.FamilyActor && actor != repo.item.UserID) {
 		return expenses.Expense{}, expenses.ErrNotFound
 	}
 	return repo.item, nil
@@ -56,7 +56,7 @@ func TestDeleteRequiresConfirmationAndChecksVersion(t *testing.T) {
 	item := expenses.Expense{ID: 1, UserID: 111, Amount: "10.00", Category: "транспорт", SpentAt: "2026-10-16", Comment: "такси", Version: 1}
 	repo := &memoryRepo{item: item}
 	service := expenses.Service{Repo: repo}
-	engine := Engine{Currency: "BYN"}
+	engine := Engine{Currency: "RUB"}
 	prepared := Prepared{Text: "удали такси", Action: llm.Action{Name: "delete_expense", Subject: "self", ID: "1"}, Snapshot: []expenses.Expense{item}}
 	_, state, err := engine.Apply(ctx, service, 111, prepared)
 	if err != nil || state.Pending == nil || repo.deleted {
@@ -90,7 +90,7 @@ func TestPartialUpdatePreservesOtherFields(t *testing.T) {
 	item := expenses.Expense{ID: 1, UserID: 111, Amount: "350.00", Category: "еда", SpentAt: "2026-10-16", Comment: "кофе", Version: 2}
 	repo := &memoryRepo{item: item}
 	amount := "450"
-	_, state, err := (Engine{Currency: "BYN"}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "последнее было 450", Action: llm.Action{Name: "update_expense", Subject: "self", ID: "1", Amount: &amount}, Snapshot: []expenses.Expense{item}})
+	_, state, err := (Engine{Currency: "RUB"}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "последнее было 450", Action: llm.Action{Name: "update_expense", Subject: "self", ID: "1", Amount: &amount}, Snapshot: []expenses.Expense{item}})
 	if err != nil {
 		t.Fatal(err)
 	}

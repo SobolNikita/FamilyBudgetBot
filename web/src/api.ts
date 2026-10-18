@@ -1,4 +1,4 @@
-export type User = { id: string; display_name: string }
+export type User = { id: string; display_name: string; version: number; removed_at?: string }
 export type Expense = {
   id: string
   user_id: string
@@ -18,17 +18,62 @@ export type Summary = {
 export type Settings = { currency: string; timezone: string; today: string }
 export type Filters = { user_id: string; from: string; to: string; category: string }
 
-export async function api<Result>(path: string, options?: RequestInit): Promise<Result> {
-  const response = await fetch(`/api${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-  })
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}))
-    throw new Error(body.error || `Не удалось выполнить запрос (${response.status})`)
+export class APIError extends Error {
+  status: number
+  constructor(message: string, status = 0) {
+    super(message)
+    this.status = status
   }
-  if (response.status === 204) return undefined as Result
-  return response.json() as Promise<Result>
+}
+
+export function requestKey(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) =>
+    value.toString(16).padStart(2, '0'),
+  ).join('')
+}
+
+export async function api<Result>(
+  path: string,
+  options?: RequestInit,
+  timeoutMs = 15000,
+): Promise<Result> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(`/api${path}`, {
+      ...options,
+      signal: options?.signal
+        ? AbortSignal.any([controller.signal, options.signal])
+        : controller.signal,
+      headers: { 'Content-Type': 'application/json', ...options?.headers },
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      throw new APIError(
+        body.error || 'Не получилось выполнить действие. Попробуйте немного позже.',
+        response.status,
+      )
+    }
+    if (response.status === 204) return undefined as Result
+    return (await response.json()) as Result
+  } catch (error) {
+    if (options?.signal?.aborted) throw error
+    if (error instanceof APIError) throw error
+    if (!options?.method || options.method === 'GET') {
+      throw new APIError(
+        controller.signal.aborted
+          ? 'Данные не загрузились вовремя. Повторите запрос.'
+          : 'Не удалось загрузить данные. Проверьте соединение.',
+      )
+    }
+    throw new APIError(
+      controller.signal.aborted
+        ? 'Не удалось получить подтверждение. Проверьте список расходов перед новой попыткой.'
+        : 'Связь прервалась. Проверьте список расходов: изменение могло сохраниться.',
+    )
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export function query(filters: Filters, offset = 0): string {

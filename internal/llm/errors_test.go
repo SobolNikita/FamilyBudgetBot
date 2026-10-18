@@ -44,6 +44,11 @@ func TestSafeHTTPDiagnostics(t *testing.T) {
 			if !strings.Contains(failure.UserMessage(), "не изменены") {
 				t.Fatal("outcome not explained")
 			}
+			for _, technical := range []string{"LLM_", "HTTP", "JSON", "ключ", "модел", "сертификат", "квот"} {
+				if strings.Contains(failure.UserMessage(), technical) {
+					t.Fatalf("technical diagnostic in user message: %s", failure.UserMessage())
+				}
+			}
 		})
 	}
 }

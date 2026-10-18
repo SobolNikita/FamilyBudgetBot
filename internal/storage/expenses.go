@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -39,7 +40,7 @@ func translate(err error) error {
 }
 
 func (repo Repository) Users(ctx context.Context) ([]expenses.User, error) {
-	rows, err := repo.DB.Query(ctx, `SELECT id, display_name FROM users WHERE display_name <> '' ORDER BY display_name, id`)
+	rows, err := repo.DB.Query(ctx, `SELECT id, display_name, membership_version FROM users WHERE display_name <> '' AND removed_at IS NULL ORDER BY display_name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +48,7 @@ func (repo Repository) Users(ctx context.Context) ([]expenses.User, error) {
 	users := []expenses.User{}
 	for rows.Next() {
 		var user expenses.User
-		if err := rows.Scan(&user.ID, &user.DisplayName); err != nil {
+		if err := rows.Scan(&user.ID, &user.DisplayName, &user.Version); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -57,7 +58,7 @@ func (repo Repository) Users(ctx context.Context) ([]expenses.User, error) {
 
 func (repo Repository) User(ctx context.Context, userID int64) (expenses.User, error) {
 	var user expenses.User
-	err := repo.DB.QueryRow(ctx, `SELECT id, display_name FROM users WHERE id=$1 AND display_name<>''`, userID).Scan(&user.ID, &user.DisplayName)
+	err := repo.DB.QueryRow(ctx, `SELECT id, display_name, membership_version FROM users WHERE id=$1 AND display_name<>'' AND removed_at IS NULL`, userID).Scan(&user.ID, &user.DisplayName, &user.Version)
 	return user, translate(err)
 }
 
@@ -89,31 +90,44 @@ func where(filter expenses.Filter) (string, []any) {
 func (repo Repository) List(ctx context.Context, filter expenses.Filter) (expenses.Page, error) {
 	clause, args := where(filter)
 	page := expenses.Page{Items: []expenses.Expense{}}
-	if err := repo.DB.QueryRow(ctx, `SELECT count(*) FROM expenses WHERE `+clause, args...).Scan(&page.Total); err != nil {
+	query := fmt.Sprintf(`
+SELECT
+    (SELECT count(*) FROM expenses WHERE %[1]s),
+    COALESCE((SELECT jsonb_agg(
+        to_jsonb(page) || jsonb_build_object('id', id::text, 'user_id', user_id::text)
+        ORDER BY spent_at DESC, id DESC
+    ) FROM (
+        SELECT %[2]s FROM expenses WHERE %[1]s
+        ORDER BY expenses.spent_at DESC, id DESC LIMIT $%[3]d OFFSET $%[4]d
+    ) page), '[]'::jsonb),
+    COALESCE((SELECT expense_revision FROM users WHERE id=$%[5]d), 0)
+`, clause, strings.ReplaceAll(columns, "to_char(spent_at, 'YYYY-MM-DD')", "to_char(spent_at, 'YYYY-MM-DD') AS spent_at"), len(args)+1, len(args)+2, len(args)+3)
+	args = append(args, filter.Limit, filter.Offset, filter.UserID)
+	var data []byte
+	if err := repo.DB.QueryRow(ctx, query, args...).Scan(&page.Total, &data, &page.Revision); err != nil {
 		return page, err
 	}
-	query := fmt.Sprintf(`SELECT %s FROM expenses WHERE %s ORDER BY spent_at DESC, id DESC LIMIT $%d OFFSET $%d`, columns, clause, len(args)+1, len(args)+2)
-	args = append(args, filter.Limit, filter.Offset)
-	rows, err := repo.DB.Query(ctx, query, args...)
-	if err != nil {
-		return page, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		expense, err := scanExpense(rows)
-		if err != nil {
-			return page, err
-		}
-		page.Items = append(page.Items, expense)
-	}
-	return page, rows.Err()
+	err := json.Unmarshal(data, &page.Items)
+	return page, err
 }
 
 func (repo Repository) Get(ctx context.Context, actor, id int64) (expenses.Expense, error) {
-	return scanExpense(repo.DB.QueryRow(ctx, `SELECT `+columns+` FROM expenses WHERE id=$1 AND ($2::bigint=0 OR user_id=$2)`, id, actor))
+	if err := expenses.ValidateActor(actor); err != nil {
+		return expenses.Expense{}, err
+	}
+	return scanExpense(repo.DB.QueryRow(ctx, `SELECT `+columns+` FROM expenses WHERE id=$1 AND ($2::bigint=-1 OR user_id=$2)`, id, actor))
 }
 
 func (repo Repository) Create(ctx context.Context, input expenses.Input) (expenses.Expense, error) {
+	if input.IdempotencyKey != "" {
+		return repo.createOnce(ctx, input)
+	}
+	var result expenses.Expense
+	err := repo.Write(ctx, func(current Repository) error { var err error; result, err = current.create(ctx, input); return err })
+	return result, err
+}
+
+func (repo Repository) create(ctx context.Context, input expenses.Input) (expenses.Expense, error) {
 	if err := repo.requireRegisteredUser(ctx, input.UserID); err != nil {
 		return expenses.Expense{}, err
 	}
@@ -121,10 +135,26 @@ func (repo Repository) Create(ctx context.Context, input expenses.Input) (expens
 }
 
 func (repo Repository) Update(ctx context.Context, actor, id int64, input expenses.Input) (expenses.Expense, error) {
+	if err := expenses.ValidateActor(actor); err != nil {
+		return expenses.Expense{}, err
+	}
+	var result expenses.Expense
+	err := repo.Write(ctx, func(current Repository) error {
+		var err error
+		result, err = current.update(ctx, actor, id, input)
+		return err
+	})
+	return result, err
+}
+
+func (repo Repository) update(ctx context.Context, actor, id int64, input expenses.Input) (expenses.Expense, error) {
+	if err := expenses.ValidateActor(actor); err != nil {
+		return expenses.Expense{}, err
+	}
 	if err := repo.requireRegisteredUser(ctx, input.UserID); err != nil {
 		return expenses.Expense{}, err
 	}
-	expense, err := scanExpense(repo.DB.QueryRow(ctx, `UPDATE expenses SET user_id=$3, amount=$4::numeric, category=$5, spent_at=$6::date, comment=$7, version=version+1, updated_at=now() WHERE id=$1 AND ($2::bigint=0 OR user_id=$2) AND version=$8 RETURNING `+columns, id, actor, input.UserID, input.Amount, input.Category, input.SpentAt, input.Comment, input.Version))
+	expense, err := scanExpense(repo.DB.QueryRow(ctx, `UPDATE expenses SET user_id=$3, amount=$4::numeric, category=$5, spent_at=$6::date, comment=$7, version=version+1, updated_at=now() WHERE id=$1 AND ($2::bigint=-1 OR user_id=$2) AND version=$8 RETURNING `+columns, id, actor, input.UserID, input.Amount, input.Category, input.SpentAt, input.Comment, input.Version))
 	if errors.Is(err, expenses.ErrNotFound) {
 		return expense, repo.missingOrConflict(ctx, actor, id)
 	}
@@ -133,7 +163,7 @@ func (repo Repository) Update(ctx context.Context, actor, id int64, input expens
 
 func (repo Repository) requireRegisteredUser(ctx context.Context, userID int64) error {
 	var registered bool
-	if err := repo.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND display_name <> '')`, userID).Scan(&registered); err != nil {
+	if err := repo.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND display_name <> '' AND removed_at IS NULL)`, userID).Scan(&registered); err != nil {
 		return err
 	}
 	if !registered {
@@ -143,7 +173,17 @@ func (repo Repository) requireRegisteredUser(ctx context.Context, userID int64) 
 }
 
 func (repo Repository) Delete(ctx context.Context, actor, id int64, version int) error {
-	result, err := repo.DB.Exec(ctx, `DELETE FROM expenses WHERE id=$1 AND ($2::bigint=0 OR user_id=$2) AND version=$3`, id, actor, version)
+	if err := expenses.ValidateActor(actor); err != nil {
+		return err
+	}
+	return repo.Write(ctx, func(current Repository) error { return current.delete(ctx, actor, id, version) })
+}
+
+func (repo Repository) delete(ctx context.Context, actor, id int64, version int) error {
+	if err := expenses.ValidateActor(actor); err != nil {
+		return err
+	}
+	result, err := repo.DB.Exec(ctx, `DELETE FROM expenses WHERE id=$1 AND ($2::bigint=-1 OR user_id=$2) AND version=$3`, id, actor, version)
 	if err != nil {
 		return err
 	}

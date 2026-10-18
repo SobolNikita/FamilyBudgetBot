@@ -3,15 +3,14 @@ package telegram
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
-	"unicode/utf8"
 
 	"familyexpenses/internal/bot"
-	"familyexpenses/internal/expenses"
 	"familyexpenses/internal/llm"
+	"familyexpenses/internal/processing"
 	"familyexpenses/internal/storage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,16 +22,21 @@ type Runner struct {
 	Planner  llm.Planner
 	Engine   bot.Engine
 	Location *time.Location
+	Health   *Health
 }
 
-func (runner Runner) Run(ctx context.Context) error {
-	connection, err := runner.Pool.Acquire(ctx)
+var ErrShutdownTimeout = errors.New("bot shutdown deadline exceeded")
+
+func (runner Runner) Run(ctx context.Context) (result error) {
+	startup, startupCancel := context.WithTimeout(ctx, storage.OperationTimeout)
+	connection, err := runner.Pool.Acquire(startup)
+	startupCancel()
 	if err != nil {
 		return err
 	}
 	defer connection.Release()
 	var locked bool
-	if err := connection.QueryRow(ctx, `SELECT pg_try_advisory_lock(830124820)`).Scan(&locked); err != nil {
+	if err := (storage.TimedDB{DB: connection}).QueryRow(ctx, `SELECT pg_try_advisory_lock(830124820)`).Scan(&locked); err != nil {
 		return err
 	}
 	if !locked {
@@ -45,66 +49,121 @@ func (runner Runner) Run(ctx context.Context) error {
 	}()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	finished := make(chan struct{})
-	go func() { defer close(finished); runner.poll(ctx) }()
-	deliveryFinished := make(chan struct{})
-	go func() { defer close(deliveryFinished); runner.deliver(ctx) }()
-	defer func() { cancel(); <-finished; <-deliveryFinished }()
-	repo := storage.Repository{DB: runner.Pool}
-	lastCleanup := time.Time{}
+	runner.Health.Worker("")
+	defer runner.Health.Worker("stopped")
+	var group sync.WaitGroup
+	start := func(work func()) { group.Add(1); go func() { defer group.Done(); work() }() }
+	start(func() { runner.poll(ctx) })
+	start(func() { runner.deliver(ctx) })
+	repo := runner.repository()
+	start(func() {
+		for ctx.Err() == nil {
+			if err := repo.Cleanup(ctx); err != nil && ctx.Err() == nil {
+				slog.Warn("queue cleanup failed")
+			}
+			if !pause(ctx, time.Minute) {
+				return
+			}
+		}
+	})
+	lockLost := make(chan struct{})
+	start(func() {
+		for pause(ctx, time.Second) {
+			var alive int
+			if err := (storage.TimedDB{DB: connection}).QueryRow(ctx, `SELECT 1`).Scan(&alive); err != nil {
+				close(lockLost)
+				cancel()
+				return
+			}
+		}
+	})
+	defer func() {
+		cancel()
+		done := make(chan struct{})
+		go func() { group.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			slog.Error("bot shutdown deadline exceeded")
+			result = ErrShutdownTimeout
+		}
+	}()
+	active := map[int64]bool{}
+	completed := make(chan int64, 4)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	for ctx.Err() == nil {
-		if time.Since(lastCleanup) > time.Hour {
-			if err := repo.Cleanup(ctx); err != nil {
-				slog.Error("queue cleanup failed")
+		for len(active) < 4 && ctx.Err() == nil {
+			excluded := make([]int64, 0, len(active))
+			for userID := range active {
+				excluded = append(excluded, userID)
 			}
-			lastCleanup = time.Now()
-		}
-		var alive int
-		if err := connection.QueryRow(ctx, `SELECT 1`).Scan(&alive); err != nil {
-			return errors.New("Telegram worker lock connection lost")
-		}
-		update, err := repo.NextUpdate(ctx)
-		if errors.Is(err, pgx.ErrNoRows) {
-			if !pause(ctx, time.Second) {
+			update, err := repo.NextUpdate(ctx, excluded...)
+			if errors.Is(err, pgx.ErrNoRows) {
 				break
 			}
-			continue
-		}
-		if err != nil {
-			slog.Error("queue read failed")
-			if !pause(ctx, 3*time.Second) {
-				break
-			}
-			continue
-		}
-		err = runner.process(ctx, repo, update)
-		if err != nil && ctx.Err() == nil {
-			slog.Warn("bot processing failed", "update_id", update.ID, "code", "processing_failed")
-			if retryErr := repo.RetryProcessing(ctx, update); retryErr != nil {
-				slog.Error("queue retry scheduling failed")
-				if !pause(ctx, 3*time.Second) {
-					break
+			if err != nil {
+				if ctx.Err() == nil {
+					slog.Warn("queue read failed")
 				}
+				break
 			}
+			if err := repo.TouchProcessing(ctx, update.UserID); err != nil {
+				break
+			}
+			active[update.UserID] = true
+			start(func() {
+				operation, cancel := context.WithTimeout(ctx, 150*time.Second)
+				err := runner.process(operation, repo, update)
+				cancel()
+				if err != nil && ctx.Err() == nil {
+					slog.Warn("bot processing failed", "update_id", update.ID, "code", storage.ErrorCode(err))
+					if err := repo.RetryProcessing(ctx, update); err != nil {
+						slog.Warn("queue retry scheduling failed")
+					}
+				}
+				completed <- update.UserID
+			})
+		}
+		select {
+		case userID := <-completed:
+			delete(active, userID)
+		case <-ticker.C:
+		case <-ctx.Done():
 		}
 	}
-	return nil
+	select {
+	case <-lockLost:
+		return errors.New("Telegram worker lock connection lost")
+	default:
+		return nil
+	}
+}
+
+func (runner Runner) repository() storage.Repository {
+	return storage.Repository{DB: storage.TimedDB{DB: runner.Pool}}
 }
 
 func (runner Runner) poll(ctx context.Context) {
 	var offset int64
-	repo := storage.Repository{DB: runner.Pool}
+	repo := runner.repository()
+	failures := 0
 	for ctx.Err() == nil {
 		updates, err := runner.Client.Poll(ctx, offset)
 		if err != nil {
+			failures++
+			delay, code := pollRetry(err, failures)
+			runner.Health.poll(code)
 			if ctx.Err() == nil {
 				slog.Warn("Telegram polling failed", "error", err)
 			}
-			if !pause(ctx, 3*time.Second) {
+			if !pause(ctx, delay) {
 				return
 			}
 			continue
 		}
+		failures = 0
+		runner.Health.poll("")
 		for _, update := range updates {
 			message := update.Message
 			if message != nil && message.Chat.Type == "private" && message.From.ID > 0 && message.Chat.ID == message.From.ID {
@@ -112,7 +171,12 @@ func (runner Runner) poll(ctx context.Context) {
 				if text == "" {
 					text = "[неподдерживаемый тип сообщения]"
 				}
-				if err := repo.Enqueue(ctx, storage.Update{ID: update.ID, UserID: message.From.ID, ChatID: message.Chat.ID, MessageID: message.ID, Text: text}); err != nil {
+				var messageAt time.Time
+				if message.Date > 0 {
+					messageAt = time.Unix(message.Date, 0)
+				}
+				if err := repo.Enqueue(ctx, storage.Update{ID: update.ID, UserID: message.From.ID, ChatID: message.Chat.ID, MessageID: message.ID, Text: text, MessageAt: messageAt}); err != nil {
+					runner.Health.poll("persistence_failed")
 					slog.Error("Telegram update persistence failed")
 					pause(ctx, 3*time.Second)
 					break
@@ -124,76 +188,7 @@ func (runner Runner) poll(ctx context.Context) {
 }
 
 func (runner Runner) process(ctx context.Context, repo storage.Repository, update storage.Update) error {
-	if !update.CreatedAt.IsZero() && time.Since(update.CreatedAt) > 2*time.Minute {
-		return repo.FailProcessing(ctx, update.ID, "Сообщение слишком долго ожидало обработки. Расходы по нему не изменены. Пришлите запрос заново.", "queue_timeout")
-	}
-	if handled, err := runner.register(ctx, update); handled || err != nil {
-		return err
-	}
-	state, err := repo.State(ctx, update.UserID)
-	if err != nil {
-		return err
-	}
-	recent, err := repo.Recent(ctx, update.UserID)
-	if err != nil {
-		return err
-	}
-	prepared := bot.Prepared{Text: update.Text, State: state, Snapshot: recent}
-	if state.Pending == nil {
-		if update.Text == "/start" || update.Text == "[неподдерживаемый тип сообщения]" || utf8.RuneCountInString(update.Text) > 2000 {
-			prepared.Action = llm.Action{Name: "ask_question", Subject: "self", Question: "Пришлите короткое текстовое сообщение: «кофе 350», «покажи расходы за неделю», «последнее было 450» или «удали такси»."}
-		} else {
-			user, err := repo.User(ctx, update.UserID)
-			if err != nil {
-				return err
-			}
-			started := time.Now()
-			prepared.Action, err = runner.Planner.Plan(ctx, llm.Request{Text: update.Text, Today: time.Now().In(runner.Location).Format(time.DateOnly), Currency: runner.Engine.Currency, CurrentUser: user.DisplayName, Context: state.Context, RecentExpenses: recent})
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				failure := llm.Diagnose(err)
-				slog.Warn("LLM request failed", "update_id", update.ID, "code", failure.Kind, "http_status", failure.Status, "duration_ms", time.Since(started).Milliseconds())
-				return repo.FailProcessing(ctx, update.ID, failure.UserMessage(), "llm_"+failure.Kind)
-			}
-			slog.Info("LLM request completed", "update_id", update.ID, "duration_ms", time.Since(started).Milliseconds())
-		}
-	}
-	transaction, err := runner.Pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer transaction.Rollback(context.Background())
-	var status string
-	if err := transaction.QueryRow(ctx, `SELECT status FROM telegram_updates WHERE update_id=$1 FOR UPDATE`, update.ID).Scan(&status); err != nil {
-		return err
-	}
-	if status != "pending" {
-		return nil
-	}
-	if _, err := transaction.Exec(ctx, `SAVEPOINT expense_action`); err != nil {
-		return err
-	}
-	txRepo := storage.Repository{DB: transaction}
-	reply, nextState, err := runner.Engine.Apply(ctx, expenses.Service{Repo: txRepo}, update.UserID, prepared)
-	if err != nil {
-		if !errors.Is(err, expenses.ErrInvalid) && !errors.Is(err, expenses.ErrNotFound) && !errors.Is(err, expenses.ErrConflict) {
-			return fmt.Errorf("apply bot action: %w", err)
-		}
-		if _, rollbackErr := transaction.Exec(ctx, `ROLLBACK TO SAVEPOINT expense_action`); rollbackErr != nil {
-			return rollbackErr
-		}
-		reply = "Не выполнено: " + err.Error()
-		if prepared.Action.Name == "create_expenses" {
-			reply += ". Ни один расход из сообщения не сохранён. Исправьте список и пришлите его целиком."
-		}
-		nextState = bot.State{}
-	}
-	if err := txRepo.Complete(ctx, update.ID, update.UserID, reply, nextState); err != nil {
-		return err
-	}
-	return transaction.Commit(ctx)
+	return (processing.Processor{Pool: runner.Pool, Planner: runner.Planner, Engine: runner.Engine, Location: runner.Location, ReportLLM: runner.Health.llm}).Process(ctx, repo, update)
 }
 
 func pause(ctx context.Context, duration time.Duration) bool {

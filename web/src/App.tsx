@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import {
   api,
   money,
   query,
   type Expense,
-  type ExpenseInput,
   type Filters,
   type Page,
   type Settings,
@@ -13,6 +12,9 @@ import {
 } from './api'
 import { readView, viewURL, type ViewState } from './viewState'
 import Pagination from './Pagination'
+import ExpenseForm from './ExpenseForm'
+import Modal from './Modal'
+import MemberManager from './MemberManager'
 import ThemePicker from './ThemePicker'
 
 const emptyFilters: Filters = { user_id: '', from: '', to: '', category: '' }
@@ -46,8 +48,11 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [revision, setRevision] = useState(0)
   const [editing, setEditing] = useState<Expense | 'new' | null>(null)
+  const [formSettings, setFormSettings] = useState<Settings | null>(null)
+  const [opening, setOpening] = useState(false)
   const [deleting, setDeleting] = useState<Expense | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [managingMembers, setManagingMembers] = useState(false)
 
   useEffect(() => {
     if (settings) return
@@ -113,7 +118,11 @@ export default function App() {
         setUsers(people)
       })
       .catch((failure) => {
-        if (!controller.signal.aborted) setError(failure.message)
+        if (!controller.signal.aborted) {
+          setPage({ items: [], total: 0 })
+          setSummary({ amount: '0.00', count: 0, categories: [] })
+          setError(failure.message)
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
@@ -139,6 +148,20 @@ export default function App() {
     setNotice('Расход сохранён')
   }
 
+  async function openNew() {
+    if (opening) return
+    setOpening(true)
+    try {
+      const fresh = await api<Settings>('/config')
+      setFormSettings(fresh)
+      setEditing('new')
+    } catch (failure) {
+      setError((failure as Error).message)
+    } finally {
+      setOpening(false)
+    }
+  }
+
   async function remove() {
     if (!deleting) return
     setDeleteBusy(true)
@@ -159,7 +182,7 @@ export default function App() {
   const currency = settings?.currency || ''
   const period =
     filters.from || filters.to
-      ? `${filters.from ? dateLabel(filters.from) : 'Начало'} — ${filters.to ? dateLabel(filters.to) : 'сегодня'}`
+      ? `${filters.from ? dateLabel(filters.from) : 'Без начальной даты'} — ${filters.to ? dateLabel(filters.to) : 'без конечной даты'}`
       : 'За всё время'
 
   return (
@@ -212,6 +235,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button className="text-button manage-members" onClick={() => setManagingMembers(true)}>
+          Управление участниками
+        </button>
         <div className="sidebar-note">
           <span>
             Маленькие расходы.
@@ -244,8 +270,8 @@ export default function App() {
           </div>
           <button
             className="primary"
-            disabled={!settings || !users.length}
-            onClick={() => setEditing('new')}
+            disabled={!settings || !users.length || opening}
+            onClick={openNew}
           >
             <span>＋</span> Добавить расход
           </button>
@@ -267,7 +293,7 @@ export default function App() {
         )}
         {!loading && !error && settings && !users.length && (
           <div className="alert success" role="status">
-            Чтобы добавить участника, напишите Telegram-боту и ответьте на вопрос об имени. Затем
+            Чтобы присоединиться к семье, напишите боту, представьтесь и подтвердите имя. Затем
             нажмите «Обновить».
           </div>
         )}
@@ -277,7 +303,9 @@ export default function App() {
             <div className="stat-label">
               Общие расходы <span>↗</span>
             </div>
-            <div className="total-value">{loading ? '…' : money(summary.amount, currency)}</div>
+            <div className="total-value">
+              {loading ? '…' : error ? '—' : money(summary.amount, currency)}
+            </div>
             <div className="stat-foot">{period}</div>
             <div className="card-decoration" aria-hidden="true">
               ⌂
@@ -287,7 +315,7 @@ export default function App() {
             <div className="stat-label">
               Записей за период <span className="stat-symbol">▤</span>
             </div>
-            <div className="stat-value">{loading ? '…' : summary.count}</div>
+            <div className="stat-value">{loading ? '…' : error ? '—' : summary.count}</div>
             <div className="stat-foot">Каждая мелочь имеет значение</div>
           </article>
           <article className="stat-card">
@@ -450,8 +478,8 @@ export default function App() {
                   <p>Добавьте первый расход или измените фильтры.</p>
                   <button
                     className="secondary"
-                    disabled={!settings || !users.length}
-                    onClick={() => setEditing('new')}
+                    disabled={!settings || !users.length || opening}
+                    onClick={openNew}
                   >
                     Добавить расход
                   </button>
@@ -474,6 +502,7 @@ export default function App() {
             <p className="muted">За выбранный период</p>
             <div className="breakdown-list">
               {!loading &&
+                !error &&
                 summary.categories.map((category) => (
                   <div className="breakdown-item" key={category.category}>
                     <div>
@@ -496,10 +525,11 @@ export default function App() {
                     />
                   </div>
                 ))}
-              {!loading && !summary.categories.length && (
+              {!loading && !error && !summary.categories.length && (
                 <p className="muted">Распределение появится вместе с первыми расходами.</p>
               )}
               {loading && <p className="muted">Загрузка…</p>}
+              {!loading && error && <p className="muted">Итоги недоступны. Повторите загрузку.</p>}
             </div>
             <div className="tip">
               <span>✦</span>
@@ -518,9 +548,22 @@ export default function App() {
           expense={editing}
           users={users}
           categories={categories}
-          settings={settings}
+          settings={editing === 'new' && formSettings ? formSettings : settings}
+          defaultUserID={filters.user_id}
           onClose={() => setEditing(null)}
           onSaved={saved}
+        />
+      )}
+      {managingMembers && (
+        <MemberManager
+          onClose={() => setManagingMembers(false)}
+          onChanged={() => {
+            setEditing(null)
+            setDeleting(null)
+            setNotice('')
+            changeView({ ...filters, user_id: '' }, 0)
+            setRevision((value) => value + 1)
+          }}
         />
       )}
       {deleting && (
@@ -546,180 +589,6 @@ export default function App() {
         </Modal>
       )}
     </div>
-  )
-}
-
-function ExpenseForm({
-  expense,
-  users,
-  categories,
-  settings,
-  onClose,
-  onSaved,
-}: {
-  expense: Expense | 'new'
-  users: User[]
-  categories: string[]
-  settings: Settings
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const [form, setForm] = useState<ExpenseInput>(
-    expense === 'new'
-      ? {
-          user_id: users[0]?.id || '',
-          amount: '',
-          category: 'другое',
-          spent_at: settings.today,
-          comment: '',
-          version: 0,
-        }
-      : {
-          user_id: expense.user_id,
-          amount: expense.amount,
-          category: expense.category,
-          spent_at: expense.spent_at,
-          comment: expense.comment,
-          version: expense.version,
-        },
-  )
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  function field(key: keyof ExpenseInput, value: string) {
-    setForm((current) => ({ ...current, [key]: value }))
-  }
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    setError('')
-    try {
-      await api<Expense>(expense === 'new' ? '/expenses' : `/expenses/${expense.id}`, {
-        method: expense === 'new' ? 'POST' : 'PUT',
-        body: JSON.stringify({ ...form, amount: form.amount.replace(',', '.') }),
-      })
-      onSaved()
-    } catch (failure) {
-      setError((failure as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <Modal
-      title={expense === 'new' ? 'Новый расход' : 'Редактирование расхода'}
-      onClose={() => {
-        if (!busy) onClose()
-      }}
-    >
-      <form onSubmit={submit}>
-        <p className="muted">Небольшая запись — полная картина бюджета.</p>
-        {error && (
-          <div className="alert error" role="alert">
-            {error}
-          </div>
-        )}
-        <div className="form-grid">
-          <label>
-            Сумма, {settings.currency}
-            <input
-              autoFocus
-              required
-              inputMode="decimal"
-              placeholder="0,00"
-              pattern="[0-9]+([.,][0-9]{1,2})?"
-              value={form.amount}
-              onChange={(event) => field('amount', event.target.value)}
-            />
-          </label>
-          <label>
-            Дата
-            <input
-              type="date"
-              required
-              value={form.spent_at}
-              onChange={(event) => field('spent_at', event.target.value)}
-            />
-          </label>
-          <label>
-            Участник
-            <select
-              required
-              value={form.user_id}
-              onChange={(event) => field('user_id', event.target.value)}
-            >
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Категория
-            <select
-              value={form.category}
-              onChange={(event) => field('category', event.target.value)}
-            >
-              {categories.map((category) => (
-                <option key={category}>{category}</option>
-              ))}
-            </select>
-          </label>
-          <label className="full-width">
-            Комментарий
-            <textarea
-              maxLength={1000}
-              rows={3}
-              placeholder="Например, продукты на неделю"
-              value={form.comment}
-              onChange={(event) => field('comment', event.target.value)}
-            />
-          </label>
-        </div>
-        <div className="modal-actions">
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            Отмена
-          </button>
-          <button className="primary" disabled={busy}>
-            {busy ? 'Сохраняем…' : 'Сохранить расход'}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-}) {
-  const reference = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
-    reference.current?.showModal()
-  }, [])
-  return (
-    <dialog
-      ref={reference}
-      className="modal"
-      aria-labelledby="modal-title"
-      onCancel={(event) => {
-        event.preventDefault()
-        onClose()
-      }}
-    >
-      <div className="modal-header">
-        <h2 id="modal-title">{title}</h2>
-        <button aria-label="Закрыть" onClick={onClose}>
-          ×
-        </button>
-      </div>
-      {children}
-    </dialog>
   )
 }
 

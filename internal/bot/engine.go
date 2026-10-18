@@ -8,30 +8,15 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"familyexpenses/internal/dialog"
 	"familyexpenses/internal/expenses"
 	"familyexpenses/internal/llm"
 )
 
-type Turn struct {
-	Text  string `json:"text"`
-	Reply string `json:"reply"`
-}
-
-type Conversation struct {
-	LastExpense *expenses.Expense  `json:"last_expense,omitempty"`
-	Shown       []expenses.Expense `json:"shown,omitempty"`
-	Turns       []Turn             `json:"turns,omitempty"`
-}
-
-type Pending struct {
-	ID      int64 `json:"id,string"`
-	Version int   `json:"version"`
-}
-
-type State struct {
-	Context Conversation
-	Pending *Pending
-}
+type Turn = dialog.Turn
+type Conversation = dialog.Conversation
+type Pending = dialog.Pending
+type State = dialog.State
 
 type Prepared struct {
 	Action   llm.Action
@@ -42,19 +27,22 @@ type Prepared struct {
 
 type Engine struct{ Currency string }
 
-const AccessDeniedReply = "Доступ запрещён. В Telegram можно просматривать и изменять только свои расходы. Запросы к расходам других участников и общему семейному отчёту недоступны."
+const AccessDeniedReply = "Здесь можно посмотреть и изменить только свои расходы. Общие расходы семьи доступны в веб-панели."
 
 func Confirmation(text string) string {
-	switch strings.ToLower(strings.Trim(strings.TrimSpace(text), ".! ")) {
-	case "да", "подтверждаю", "да, удали", "да удали", "удали":
+	switch strings.Join(strings.Fields(strings.ToLower(strings.Trim(strings.TrimSpace(text), ".! "))), " ") {
+	case "да", "подтверждаю", "да, удали", "да удали", "удали", "да, конечно", "да конечно", "да, удали его", "да удали его", "подтверждаю удаление":
 		return "confirm"
-	case "нет", "отмена", "отмени", "не надо":
+	case "нет", "отмена", "отмени", "не надо", "не удаляй", "нет, не удаляй", "нет не удаляй", "оставь", "оставь его", "передумал", "передумала":
 		return "cancel"
 	}
 	return ""
 }
 
 func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor int64, prepared Prepared) (string, State, error) {
+	if actor <= 0 {
+		return "", prepared.State, fmt.Errorf("%w: Telegram требует положительный ID участника", expenses.ErrInvalid)
+	}
 	state := prepared.State
 	action := prepared.Action
 	var reply string
@@ -65,6 +53,14 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 				return "", state, err
 			}
 			reply = "Расход удалён."
+			shown := make([]expenses.Expense, 0, len(state.Context.Shown))
+			for _, item := range state.Context.Shown {
+				if item.ID != state.Pending.ID {
+					shown = append(shown, item)
+				}
+			}
+			state.Context.Shown = shown
+			state.Context.Turns = nil
 			if state.Context.LastExpense != nil && state.Context.LastExpense.ID == state.Pending.ID {
 				state.Context.LastExpense = nil
 			}
@@ -73,7 +69,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			state.Pending = nil
 			reply = "Удаление отменено."
 		default:
-			reply = "Ожидаю подтверждение удаления: ответьте «да» или «нет»."
+			reply = "Сначала завершите удаление: напишите «да» или «не удаляй». Новая покупка из этого сообщения не записана; после отмены пришлите её ещё раз."
 		}
 		return finish(prepared.Text, reply, state)
 	}
@@ -81,7 +77,7 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 	case "other", "family":
 		return finish(prepared.Text, AccessDeniedReply, state)
 	case "unclear":
-		return finish(prepared.Text, "Уточните, пожалуйста: речь о ваших расходах? В Telegram доступны только ваши записи.", state)
+		return finish(prepared.Text, "Вы хотите посмотреть свои расходы? Здесь я могу помочь с вашими записями, а общие расходы семьи доступны в веб-панели.", state)
 	case "self":
 	default:
 		return "", state, fmt.Errorf("%w: не удалось определить владельца расходов; уточните запрос", expenses.ErrInvalid)
@@ -114,20 +110,6 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 		state.Context.Shown = created
 		state.Context.LastExpense = &created[len(created)-1]
 		reply = strings.Join(lines, "\n")
-	case "create_expense":
-		if action.Amount == nil || action.Category == nil || action.SpentAt == nil {
-			return "", state, fmt.Errorf("%w: нужны сумма, категория и дата", expenses.ErrInvalid)
-		}
-		input := expenses.Input{Amount: *action.Amount, Category: *action.Category, SpentAt: *action.SpentAt}
-		if action.Comment != nil {
-			input.Comment = *action.Comment
-		}
-		expense, err := service.Create(ctx, actor, input)
-		if err != nil {
-			return "", state, err
-		}
-		state.Context.LastExpense = &expense
-		reply = "Добавлено: " + engine.describe(expense)
 	case "update_expense", "delete_expense":
 		id, err := strconv.ParseInt(action.ID, 10, 64)
 		if err != nil || id <= 0 {
@@ -171,21 +153,48 @@ func (engine Engine) Apply(ctx context.Context, service expenses.Service, actor 
 			state.Context.LastExpense = &expense
 			reply = "Изменено: " + engine.describe(expense)
 		}
-	case "list_expenses":
+	case "list_expenses", "continue_expenses":
+		if action.Name == "continue_expenses" {
+			if state.Context.List == nil {
+				return finish(prepared.Text, "Сначала укажите, какие расходы показать. Например: «покажи расходы за месяц».", state)
+			}
+			if !state.Context.List.HasMore {
+				return finish(prepared.Text, "Больше расходов по этому запросу нет. Чтобы обновить список, укажите период ещё раз.", state)
+			}
+			filter = state.Context.List.Filter
+			filter.Offset = state.Context.List.NextOffset
+		}
 		page, err := service.List(ctx, actor, filter)
 		if err != nil {
 			return "", state, err
 		}
+		if action.Name == "continue_expenses" && (state.Context.List.Revision == 0 || page.Revision != state.Context.List.Revision) {
+			state.Context.List = nil
+			state.Context.Shown = nil
+			return finish(prepared.Text, "Список расходов изменился. Чтобы не пропустить записи, начните просмотр заново: укажите период ещё раз.", state)
+		}
 		state.Context.Shown = page.Items
-		if page.Total == 0 {
+		nextOffset := filter.Offset + len(page.Items)
+		savedFilter := filter
+		savedFilter.UserID, savedFilter.Offset = 0, 0
+		state.Context.List = &dialog.ListState{Filter: savedFilter, NextOffset: nextOffset, HasMore: len(page.Items) > 0 && nextOffset < page.Total, Revision: page.Revision}
+		for _, item := range page.Items {
+			if state.Context.LastExpense != nil && state.Context.LastExpense.ID == item.ID {
+				fresh := item
+				state.Context.LastExpense = &fresh
+			}
+		}
+		if action.Name == "continue_expenses" && len(page.Items) == 0 {
+			reply = "Больше расходов по этому запросу нет. Чтобы обновить список, укажите период ещё раз."
+		} else if page.Total == 0 {
 			reply = "За выбранный период расходов нет."
 		} else {
 			lines := []string{fmt.Sprintf("Найдено расходов: %d. Показано: %d.", page.Total, len(page.Items))}
 			for _, expense := range page.Items {
 				lines = append(lines, engine.describe(expense))
 			}
-			if page.Total > action.Offset+len(page.Items) {
-				lines = append(lines, "Можно попросить следующую страницу.")
+			if state.Context.List.HasMore {
+				lines = append(lines, "Чтобы посмотреть остальные, напишите «покажи ещё».")
 			}
 			reply = strings.Join(lines, "\n")
 		}

@@ -30,8 +30,7 @@ func (planner *blockedPlanner) Plan(ctx context.Context, request llm.Request) (l
 			return llm.Action{}, ctx.Err()
 		}
 	}
-	amount, category, spentAt := "5.00", "еда", "2026-10-17"
-	return llm.Action{Name: "create_expense", Subject: "self", Amount: &amount, Category: &category, SpentAt: &spentAt}, nil
+	return llm.Action{Name: "create_expenses", Subject: "self", Expenses: []llm.NewExpense{{Amount: "5.00", Category: "еда", SpentAt: "2026-10-17"}}}, nil
 }
 
 func TestRunnerAcknowledgesBurstWhileLLMIsBlocked(t *testing.T) {
@@ -80,7 +79,7 @@ func TestRunnerAcknowledgesBurstWhileLLMIsBlocked(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	runner := Runner{Pool: pool, Client: &Client{BaseURL: server.URL, HTTP: server.Client()}, Planner: planner, Engine: bot.Engine{Currency: "BYN"}, Location: time.UTC}
+	runner := Runner{Pool: pool, Client: &Client{BaseURL: server.URL, HTTP: server.Client()}, Planner: planner, Engine: bot.Engine{Currency: "RUB"}, Location: time.UTC}
 	finished := make(chan error, 1)
 	go func() { finished <- runner.Run(ctx) }()
 	defer func() {
@@ -223,7 +222,7 @@ func TestExpiredQueueItemDoesNotCallLLM(t *testing.T) {
 	if err := repo.Enqueue(ctx, storage.Update{ID: 1, UserID: 111, ChatID: 111, Text: "кофе"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE telegram_updates SET created_at=now()-interval '3 minutes'`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE telegram_updates SET created_at=now()-interval '2 hours'`); err != nil {
 		t.Fatal(err)
 	}
 	update, err := repo.NextUpdate(ctx)

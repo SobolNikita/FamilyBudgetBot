@@ -46,7 +46,7 @@ func TestBatchCreationAtomicityAndReplay(t *testing.T) {
 			if err := repo.Enqueue(ctx, update); err != nil {
 				t.Fatal(err)
 			}
-			runner := Runner{Pool: pool, Planner: planner, Engine: bot.Engine{Currency: "BYN"}, Location: time.UTC}
+			runner := Runner{Pool: pool, Planner: planner, Engine: bot.Engine{Currency: "RUB"}, Location: time.UTC}
 			for range 2 {
 				if err := runner.process(ctx, repo, update); err != nil {
 					t.Fatal(err)
@@ -71,7 +71,7 @@ func TestBatchCreationAtomicityAndReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			if invalid {
-				if page.Total != 0 || !strings.Contains(reply, "Ни один расход") || state.Context.LastExpense != nil {
+				if page.Total != 0 || !strings.Contains(reply, "пока не записаны") || state.Context.LastExpense != nil {
 					t.Fatalf("partial write survived: %+v %s", page, reply)
 				}
 			} else {

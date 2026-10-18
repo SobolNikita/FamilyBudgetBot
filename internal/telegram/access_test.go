@@ -38,7 +38,7 @@ func TestForeignReportRefusedInsteadOfSubstitutingOwnReport(t *testing.T) {
 		}
 	}
 	planner := &accessPlanner{}
-	runner := Runner{Pool: pool, Planner: planner, Engine: bot.Engine{Currency: "BYN"}, Location: time.UTC}
+	runner := Runner{Pool: pool, Planner: planner, Engine: bot.Engine{Currency: "RUB"}, Location: time.UTC}
 	scenarios := []struct {
 		userID                    int64
 		name, text, subject, want string
@@ -46,8 +46,8 @@ func TestForeignReportRefusedInsteadOfSubstitutingOwnReport(t *testing.T) {
 		{111, "Никита", "Сколько потратила Ева за неделю", "other", bot.AccessDeniedReply},
 		{111, "Никита", "А за месяц?", "other", bot.AccessDeniedReply},
 		{111, "Никита", "Сколько потратила вся семья?", "family", bot.AccessDeniedReply},
-		{111, "Никита", "Сколько потратил я за неделю?", "self", "Всего: 5.00 BYN"},
-		{222, "Ева", "Сколько потратила Ева за неделю?", "self", "Всего: 999.00 BYN"},
+		{111, "Никита", "Сколько потратил я за неделю?", "self", "Всего: 5.00 RUB"},
+		{222, "Ева", "Сколько потратила Ева за неделю?", "self", "Всего: 999.00 RUB"},
 		{222, "Ева", "Сколько потратил Никита?", "other", bot.AccessDeniedReply},
 	}
 	for position, scenario := range scenarios {
@@ -62,13 +62,13 @@ func TestForeignReportRefusedInsteadOfSubstitutingOwnReport(t *testing.T) {
 		if planner.request.CurrentUser != scenario.name {
 			t.Fatal("wrong sender identity sent to LLM")
 		}
-		for _, item := range planner.request.RecentExpenses.([]expenses.Expense) {
+		for _, item := range planner.request.RecentExpenses {
 			if item.UserID != scenario.userID {
 				t.Fatal("foreign expenses sent to LLM")
 			}
 		}
 		if position == 1 {
-			conversation := planner.request.Context.(bot.Conversation)
+			conversation := planner.request.Context
 			if len(conversation.Turns) != 1 || conversation.Turns[0].Reply != bot.AccessDeniedReply {
 				t.Fatal("foreign subject lost from follow-up context")
 			}

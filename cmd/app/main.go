@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,15 +48,46 @@ func run() error {
 	if err != nil {
 		return errors.New("cannot initialize database pool")
 	}
-	defer pool.Close()
+	pools := []*pgxpool.Pool{pool}
+	defer func() {
+		done := make(chan struct{})
+		go func() {
+			for _, p := range pools {
+				p.Close()
+			}
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			slog.Error("database pool shutdown deadline exceeded")
+		}
+	}()
 	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := pool.Ping(startup); err != nil {
 		return errors.New("database is unavailable")
 	}
-	repo := storage.Repository{DB: pool}
+	repo := storage.Repository{DB: storage.TimedDB{DB: pool}}
+	if err := repo.EnsureCurrency(startup, settings.Currency); err != nil {
+		return err
+	}
 	api := httpapi.Server{Service: expenses.Service{Repo: repo}, Ping: pool.Ping, Currency: settings.Currency, Location: settings.Location, WebDir: settings.WebDir}
+	api.Members = repo
+	api.QueueStatus = func(ctx context.Context) (any, error) {
+		metrics, err := repo.Metrics(ctx)
+		if err != nil {
+			return nil, err
+		}
+		stats := pool.Stat()
+		return map[string]any{"queue": metrics, "http_pool": map[string]any{"acquired": stats.AcquiredConns(), "idle": stats.IdleConns(), "max": stats.MaxConns(), "acquire_wait_ms_total": stats.AcquireDuration().Milliseconds(), "canceled_acquire_total": stats.CanceledAcquireCount()}}, nil
+	}
+	health := &telegram.Health{}
+	if settings.BotEnabled {
+		api.BotStatus = func() (any, bool) { value := health.Snapshot(); return value, value.Ready }
+	}
 	server := &http.Server{Addr: settings.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
+	server.BaseContext = func(net.Listener) context.Context { return ctx }
 	serverErrors := make(chan error, 1)
 	go func() {
 		slog.Info("http server listening", "address", settings.HTTPAddr)
@@ -63,10 +95,34 @@ func run() error {
 	}()
 	botErrors := make(chan error, 1)
 	if settings.BotEnabled {
+		botPool, err := pgxpool.NewWithConfig(ctx, poolConfig.Copy())
+		if err != nil {
+			stop()
+			_ = server.Close()
+			return errors.New("cannot initialize bot database pool")
+		}
+		pools = append(pools, botPool)
 		planner := llm.New(settings.LLMBaseURL, settings.LLMKey, settings.LLMModel)
 		planner.Timeout = settings.LLMTimeout
-		runner := telegram.Runner{Pool: pool, Client: telegram.New(settings.TelegramToken), Planner: planner, Engine: bot.Engine{Currency: settings.Currency}, Location: settings.Location}
-		go func() { botErrors <- runner.Run(ctx) }()
+		runner := telegram.Runner{Pool: botPool, Client: telegram.New(settings.TelegramToken), Planner: &llm.Circuit{Planner: planner}, Engine: bot.Engine{Currency: settings.Currency}, Location: settings.Location, Health: health}
+		go func() {
+			for ctx.Err() == nil {
+				err := runner.Run(ctx)
+				if errors.Is(err, telegram.ErrShutdownTimeout) {
+					botErrors <- err
+					return
+				}
+				if err != nil && ctx.Err() == nil {
+					health.Worker("runner_failed")
+					slog.Error("bot stopped; restarting", "code", storage.ErrorCode(err))
+				}
+				select {
+				case <-ctx.Done():
+				case <-time.After(30 * time.Second):
+				}
+			}
+			botErrors <- nil
+		}()
 	} else {
 		slog.Info("Telegram bot disabled")
 	}
@@ -83,13 +139,17 @@ func run() error {
 		botFinished = true
 	}
 	stop()
-	shutdown, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdown, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdown); err != nil {
 		_ = server.Close()
 	}
 	if settings.BotEnabled && !botFinished {
-		<-botErrors
+		select {
+		case <-botErrors:
+		case <-shutdown.Done():
+			return errors.New("bot shutdown deadline exceeded")
+		}
 	}
 	return failure
 }

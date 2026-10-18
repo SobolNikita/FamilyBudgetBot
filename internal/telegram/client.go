@@ -16,6 +16,7 @@ type Incoming struct {
 	ID      int64 `json:"update_id"`
 	Message *struct {
 		ID   int64  `json:"message_id"`
+		Date int64  `json:"date"`
 		Text string `json:"text"`
 		From struct {
 			ID int64 `json:"id"`

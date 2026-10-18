@@ -28,7 +28,7 @@ func TestBatchCreationPreservesEveryItemAndContext(t *testing.T) {
 		{Amount: "8,20", Category: "еда", SpentAt: "2026-10-17", Comment: "Йогурт"},
 		{Amount: "5", Category: "еда", SpentAt: "2026-10-17", Comment: "Чипсы"},
 	}
-	reply, state, err := (Engine{Currency: "BYN"}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "Чипсы 5 Йогурт 8,20 Чипсы 5", Action: llm.Action{Name: "create_expenses", Subject: "self", Expenses: items}})
+	reply, state, err := (Engine{Currency: "RUB"}).Apply(context.Background(), expenses.Service{Repo: repo}, 111, Prepared{Text: "Чипсы 5 Йогурт 8,20 Чипсы 5", Action: llm.Action{Name: "create_expenses", Subject: "self", Expenses: items}})
 	if err != nil || len(repo.created) != 3 {
 		t.Fatalf("batch incomplete: %+v %v", repo.created, err)
 	}
