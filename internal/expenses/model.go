@@ -50,13 +50,14 @@ type Input struct {
 }
 
 type Filter struct {
-	UserID   int64  `json:"user_id,string,omitempty"`
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Category string `json:"category"`
-	Search   string `json:"search"`
-	Limit    int    `json:"limit"`
-	Offset   int    `json:"offset"`
+	UserID    int64    `json:"user_id,string,omitempty"`
+	From      string   `json:"from"`
+	To        string   `json:"to"`
+	Category  string   `json:"category"`
+	Search    string   `json:"search"`
+	SearchAny []string `json:"search_any,omitempty"`
+	Limit     int      `json:"limit"`
+	Offset    int      `json:"offset"`
 }
 
 type Page struct {
@@ -118,6 +119,14 @@ func ValidCategory(category string) bool {
 }
 
 func ValidateFilter(filter Filter) (Filter, error) {
+	if len(filter.SearchAny) > 20 || (filter.Search != "" && len(filter.SearchAny) > 0) {
+		return filter, fmt.Errorf("%w: укажите один способ поиска, не более 20 вариантов", ErrInvalid)
+	}
+	for _, term := range filter.SearchAny {
+		if strings.TrimSpace(term) == "" || strings.ContainsRune(term, 0) || !utf8.ValidString(term) || utf8.RuneCountInString(term) > 200 {
+			return filter, fmt.Errorf("%w: проверьте слова для поиска расходов", ErrInvalid)
+		}
+	}
 	if strings.ContainsRune(filter.Search, 0) {
 		return filter, fmt.Errorf("%w: поиск содержит недопустимый символ", ErrInvalid)
 	}

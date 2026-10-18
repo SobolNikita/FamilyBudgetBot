@@ -3,6 +3,7 @@ package expenses
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +87,24 @@ func TestFilterValidation(t *testing.T) {
 	filter, err := ValidateFilter(Filter{From: "2024-02-29", To: "2024-02-29"})
 	if err != nil || filter.Limit != 25 {
 		t.Fatalf("unexpected filter: %+v %v", filter, err)
+	}
+}
+
+func TestSearchAlternativesValidation(t *testing.T) {
+	for _, filter := range []Filter{
+		{Search: "кофе", SearchAny: []string{"чай"}},
+		{SearchAny: make([]string, 21)},
+		{SearchAny: []string{""}},
+		{SearchAny: []string{" \n "}},
+		{SearchAny: []string{"бургер\x00"}},
+		{SearchAny: []string{strings.Repeat("я", 201)}},
+		{SearchAny: []string{string([]byte{0xff})}},
+	} {
+		if _, err := ValidateFilter(filter); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("accepted invalid alternatives: %+v %v", filter, err)
+		}
+	}
+	if _, err := ValidateFilter(Filter{SearchAny: []string{"бургер", "картошка фри"}}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -15,19 +15,20 @@ import (
 )
 
 type Action struct {
-	Name     string       `json:"-"`
-	Subject  string       `json:"subject"`
-	Expenses []NewExpense `json:"expenses,omitempty"`
-	ID       string       `json:"id,omitempty"`
-	Amount   *string      `json:"amount,omitempty"`
-	Category *string      `json:"category,omitempty"`
-	SpentAt  *string      `json:"spent_at,omitempty"`
-	Comment  *string      `json:"comment,omitempty"`
-	From     string       `json:"from,omitempty"`
-	To       string       `json:"to,omitempty"`
-	Search   string       `json:"search,omitempty"`
-	Offset   int          `json:"offset,omitempty"`
-	Question string       `json:"question,omitempty"`
+	Name      string       `json:"-"`
+	Subject   string       `json:"subject"`
+	Expenses  []NewExpense `json:"expenses,omitempty"`
+	ID        string       `json:"id,omitempty"`
+	Amount    *string      `json:"amount,omitempty"`
+	Category  *string      `json:"category,omitempty"`
+	SpentAt   *string      `json:"spent_at,omitempty"`
+	Comment   *string      `json:"comment,omitempty"`
+	From      string       `json:"from,omitempty"`
+	To        string       `json:"to,omitempty"`
+	Search    string       `json:"search,omitempty"`
+	SearchAny []string     `json:"search_any,omitempty"`
+	Offset    int          `json:"offset,omitempty"`
+	Question  string       `json:"question,omitempty"`
 }
 
 const MaxExpensesPerMessage = 20
@@ -74,6 +75,8 @@ const systemPrompt = `Ты помощник по учёту личных рас�
 Для добавления используй create_expenses: массив expenses со ВСЕМИ покупками из сообщения, в исходном порядке, даже если нет запятых или переносов строк. Для одной покупки передавай массив из одного элемента. Например, «Чипсы 5 Йогурт 8» — две записи: amount="5", comment="Чипсы" и amount="8", comment="Йогурт", обе category="еда", spent_at=today. Не пропускай позиции, не объединяй разные покупки в одну и не заменяй их общей суммой. Повторяющиеся покупки сохраняй отдельными позициями. Не принимай дату или количество товара за сумму. Если у любой позиции неясны сумма или смысл, задай уточнение через ask_question для всего списка, ничего не добавляя частично. После уточнения восстанови весь список из context.turns. Максимум 20 расходов за сообщение; если их больше, попроси разделить список, не сохраняй только первые 20. Изменение или удаление по-прежнему касается одной записи за сообщение; смешанные запросы на добавление и изменение/удаление попроси разделить.
 Текущая дата и валюта заданы в запросе. Даты только YYYY-MM-DD, сумма строкой с точкой и максимум двумя десятичными знаками. Если дата добавления не названа, используй today. Выбери категорию по смыслу. В comment добавляй короткое описание покупки (например, кофе или такси). Если неизвестна сумма, задай вопрос. Относительные даты вычисляй от today. Неделя начинается в понедельник, начало и конец периода включительны.
 Список recent_expenses отсортирован по времени добавления, первая запись последняя добавленная. Для «последнее» предпочитай context.last_expense, иначе первую из recent_expenses. Для изменения передавай только изменённые поля. Для выбора по описанию учитывай comment и категорию. Если подходит несколько записей, задай вопрос с датами, суммами и ID. Если нужной записи нет в контексте, сначала используй list_expenses с фильтром, а не выдумывай ID.
+Поиск для list_expenses и summarize_expenses выполняется в базе по ВСЕМ расходам отправителя за указанный период, не только recent_expenses. search — буквальная подстрока описания: она не понимает смысловые группы, синонимы и перечисления. Для группы покупок используй search_any: до 20 характерных названий или вариантов написания, совпадение хотя бы с одним. Не передавай search одновременно с search_any. Например, «сколько на фаст фуд сегодня» требует summarize_expenses, category="еда", from=today, to=today, search_any=["фастфуд","фаст фуд","фаст-фуд","бургер","картошка фри","картофель фри","наггетс","хот-дог","хот дог","шаурм","шаверм"]. Бургер и картошка фри входят в эту группу, чипсы и продукты из магазина автоматически не входят; не расширяй её до всей еды. Для «кофе или чай» используй search_any=["кофе","чай"], а не search="кофе или чай". Учитывай понятные варианты названий и форм слов, но не используй слишком короткие подстроки и не добавляй спорные товары. Если границы группы субъективны (например, «вредная еда») или из описания нельзя уверенно определить нужные покупки, задай уточнение. Не вычисляй сумму самостоятельно и не выбирай только ID из недавнего контекста. Для всей категории («на еду») достаточно category, без поисковых слов. Не придумывай период, если он не задан и не следует из уточняемого запроса.
+Если группа однозначно относится к одной категории, передавай эту category вместе с search_any для любого периода, в том числе за всё время: для фастфуда всегда category="еда", чтобы не включать, например, игрушку в виде бургера из категории «покупки». Отсутствие recent_expenses не отменяет этот фильтр.
 Для «покажи ещё», «следующая страница» и других просьб продолжить тот же список всегда используй continue_expenses. Сервер хранит фильтры и следующую позицию в context.list, независимо от длины истории. Не вычисляй offset и не восстанавливай даты для продолжения. Если context.list отсутствует, сервер попросит заново указать период. Новые явно заданные фильтры, например «теперь за май», запускают list_expenses с новым запросом.
 delete_expense только предлагает удаление одной конкретной записи; подтверждение обрабатывается сервером. Для «сколько» используй summarize_expenses, для списка — list_expenses. После уточнения используй context.turns, чтобы восстановить исходный запрос. ask_question содержит только вопрос или краткое объяснение возможностей, никогда не утверждение об исполненной операции. Для просьбы изменить собственное имя используй change_name с subject=self. Не предлагай команды со слешем. Отвечай по-русски, коротко и доброжелательно, как готовое приложение: без JSON, названий инструментов, переменных окружения, кодов ошибок и технических объяснений. Подсказывай следующий шаг обычной фразой.`
 
@@ -176,7 +179,7 @@ func toolDefinitions() []map[string]any {
 		return map[string]any{"amount": text("Положительная сумма строкой, например 12.50"), "category": category, "spent_at": text("Дата YYYY-MM-DD"), "comment": text("Описание расхода")}
 	}
 	filterProperties := func() map[string]any {
-		return map[string]any{"from": text("Начало периода YYYY-MM-DD включительно"), "to": text("Конец периода YYYY-MM-DD включительно"), "category": category, "search": text("Подстрока в комментарии"), "offset": map[string]any{"type": "integer", "minimum": 0, "description": "Пропустить записи, страницы по 20 записей"}}
+		return map[string]any{"from": text("Начало периода YYYY-MM-DD включительно"), "to": text("Конец периода YYYY-MM-DD включительно"), "category": category, "search": text("Одна буквальная подстрока в комментарии. Не использовать вместе с search_any"), "search_any": map[string]any{"type": "array", "minItems": 1, "maxItems": 20, "items": text("Непустая подстрока описания покупки"), "description": "Любое из названий или вариантов написания: логическое ИЛИ. Для смысловых групп, синонимов и нескольких товаров. Не использовать вместе с search"}, "offset": map[string]any{"type": "integer", "minimum": 0, "description": "Пропустить записи, страницы по 20 записей"}}
 	}
 	makeTool := func(name, description string, properties map[string]any, required []string) map[string]any {
 		properties["subject"] = map[string]any{"type": "string", "enum": []string{"self", "other", "family", "unclear"}, "description": "Чьи расходы запрошены: отправителя, другого человека, всей семьи или владелец неясен. Не подменять чужие расходы своими."}

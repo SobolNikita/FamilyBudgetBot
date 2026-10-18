@@ -84,6 +84,10 @@ func where(filter expenses.Filter) (string, []any) {
 	if filter.Search != "" {
 		add("strpos(lower(comment), lower($%d)) > 0", filter.Search)
 	}
+	if len(filter.SearchAny) > 0 {
+		// EXISTS matches each expense once even when several terms match it.
+		add("EXISTS (SELECT 1 FROM unnest($%d::text[]) AS terms(term) WHERE strpos(lower(comment), lower(term)) > 0)", filter.SearchAny)
+	}
 	return strings.Join(clauses, " AND "), args
 }
 
