@@ -71,7 +71,7 @@ func TestBatchCreationAtomicityAndReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			if invalid {
-				if page.Total != 0 || !strings.Contains(reply, "Ни один расход") || state.Context.LastExpense != nil {
+				if page.Total != 0 || !strings.Contains(reply, "пока не записаны") || state.Context.LastExpense != nil {
 					t.Fatalf("partial write survived: %+v %s", page, reply)
 				}
 			} else {
