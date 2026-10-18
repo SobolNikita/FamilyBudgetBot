@@ -181,7 +181,7 @@ export default function App() {
   const currency = settings?.currency || ''
   const period =
     filters.from || filters.to
-      ? `${filters.from ? dateLabel(filters.from) : 'Начало'} — ${filters.to ? dateLabel(filters.to) : 'сегодня'}`
+      ? `${filters.from ? dateLabel(filters.from) : 'Без начальной даты'} — ${filters.to ? dateLabel(filters.to) : 'без конечной даты'}`
       : 'За всё время'
 
   return (
