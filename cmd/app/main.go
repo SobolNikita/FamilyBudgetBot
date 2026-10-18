@@ -73,6 +73,7 @@ func run() error {
 		return err
 	}
 	api := httpapi.Server{Service: expenses.Service{Repo: repo}, Ping: pool.Ping, Currency: settings.Currency, Location: settings.Location, WebDir: settings.WebDir}
+	api.Members = repo
 	api.QueueStatus = func(ctx context.Context) (any, error) {
 		metrics, err := repo.Metrics(ctx)
 		if err != nil {

@@ -1,4 +1,4 @@
-export type User = { id: string; display_name: string }
+export type User = { id: string; display_name: string; version: number; removed_at?: string }
 export type Expense = {
   id: string
   user_id: string

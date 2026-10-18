@@ -17,11 +17,14 @@ var (
 	ErrNotFound = errors.New("расход не найден")
 	ErrConflict = errors.New("расход уже изменён; обновите данные и повторите действие")
 	ErrInvalid  = errors.New("некорректные данные")
+	ErrGone     = errors.New("данные операции удалены вместе с участником")
 )
 
 type User struct {
-	ID          int64  `json:"id,string"`
-	DisplayName string `json:"display_name"`
+	ID          int64      `json:"id,string"`
+	DisplayName string     `json:"display_name"`
+	Version     int        `json:"version"`
+	RemovedAt   *time.Time `json:"removed_at,omitempty"`
 }
 
 type Expense struct {

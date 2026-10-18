@@ -30,6 +30,13 @@ type Server struct {
 	MaxConcurrent  int
 	BotStatus      func() (any, bool)
 	QueueStatus    func(context.Context) (any, error)
+	Members        MemberRepository
+}
+
+type MemberRepository interface {
+	RemovedUsers(context.Context) ([]expenses.User, error)
+	RemoveUser(context.Context, int64, int) error
+	RestoreUser(context.Context, int64, int) error
 }
 
 func (server Server) Handler() http.Handler {
@@ -84,6 +91,14 @@ func (server Server) Handler() http.Handler {
 		users, err := server.Service.Repo.Users(request.Context())
 		respond(writer, users, err)
 	})
+	if server.Members != nil {
+		mux.HandleFunc("GET /api/users/removed", func(w http.ResponseWriter, r *http.Request) {
+			users, err := server.Members.RemovedUsers(r.Context())
+			respond(w, users, err)
+		})
+		mux.HandleFunc("DELETE /api/users/{id}", func(w http.ResponseWriter, r *http.Request) { server.changeMember(w, r, false) })
+		mux.HandleFunc("POST /api/users/{id}/restore", func(w http.ResponseWriter, r *http.Request) { server.changeMember(w, r, true) })
+	}
 	mux.HandleFunc("GET /api/categories", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, expenses.Categories)
 	})
@@ -264,6 +279,8 @@ func respond(writer http.ResponseWriter, value any, err error) {
 	status := http.StatusInternalServerError
 	message := "Не получилось выполнить действие. Попробуйте немного позже."
 	switch {
+	case errors.Is(err, expenses.ErrGone):
+		status, message = http.StatusGone, expenses.UserMessage(err)
 	case errors.Is(err, context.DeadlineExceeded):
 		status, message = http.StatusGatewayTimeout, "Операция не завершилась вовремя. Обновите данные перед повтором."
 	case errors.Is(err, context.Canceled):

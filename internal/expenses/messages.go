@@ -9,6 +9,8 @@ import (
 // UserMessage keeps validation advice while hiding internal error categories.
 func UserMessage(err error) string {
 	switch {
+	case errors.Is(err, ErrGone):
+		return "Данные этой операции удалены вместе с участником. Обновите список; повтор не восстановит расход."
 	case errors.Is(err, ErrNotFound):
 		return "Этот расход не найден. Возможно, его уже удалили. Обновите список расходов."
 	case errors.Is(err, ErrConflict):

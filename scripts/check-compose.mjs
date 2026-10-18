@@ -125,6 +125,38 @@ try {
   await request(`/api/expenses/${created.id}?version=${updated.version}`, 204, { method: 'DELETE' })
   await create()
   assert.equal((await (await request('/api/expenses')).json()).total, 0)
+  const secondInput = { ...input, comment: 'removed with participant' }
+  await request('/api/expenses', 201, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': 'smoke-member-00001' },
+    body: JSON.stringify(secondInput),
+  })
+  const member = (await (await request('/api/users')).json()).find((user) => user.id === '111')
+  assert.equal(member.version, 1)
+  await request('/api/users/111?version=1', 204, { method: 'DELETE' })
+  await request('/api/users/111?version=1', 204, { method: 'DELETE' })
+  assert.equal((await (await request('/api/users')).json()).length, 1)
+  assert.equal((await (await request('/api/expenses')).json()).total, 0)
+  await request('/api/expenses', 410, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': 'smoke-member-00001' },
+    body: JSON.stringify(secondInput),
+  })
+  const removed = await (await request('/api/users/removed')).json()
+  assert.equal(removed[0].id, '111')
+  assert.equal(removed[0].display_name, '')
+  await request('/api/users/111/restore?version=2', 204, { method: 'POST' })
+  await request('/api/users/111?version=1', 409, { method: 'DELETE' })
+  assert.equal((await (await request('/api/users/removed')).json()).length, 0)
+  assert.equal((await (await request('/api/users')).json()).length, 1)
+  await request('/api/expenses', 410, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': 'smoke-member-00001' },
+    body: JSON.stringify(secondInput),
+  })
+  console.log(
+    'PASS: member removal, idempotent retry, data erasure, revoked POST and restoration without old data',
+  )
   console.log(
     'PASS: isolated Compose build, migrations, static assets, health, CRUD, filters, conflicts and idempotent retries',
   )

@@ -89,6 +89,9 @@ func (runner Processor) Process(ctx context.Context, repo storage.Repository, up
 		return err
 	}
 	defer storage.Rollback(transaction)
+	if err := storage.LockLifecycle(ctx, transaction); err != nil {
+		return err
+	}
 	var status string
 	if err := transaction.QueryRow(ctx, `SELECT status FROM telegram_updates WHERE update_id=$1 FOR UPDATE`, update.ID).Scan(&status); err != nil {
 		return err
@@ -144,6 +147,9 @@ func (runner Processor) Register(ctx context.Context, update storage.Update) (bo
 		return false, err
 	}
 	defer storage.Rollback(transaction)
+	if err := storage.LockLifecycle(ctx, transaction); err != nil {
+		return false, err
+	}
 	var status string
 	if err := transaction.QueryRow(ctx, `SELECT status FROM telegram_updates WHERE update_id=$1 FOR UPDATE`, update.ID).Scan(&status); err != nil {
 		return false, err

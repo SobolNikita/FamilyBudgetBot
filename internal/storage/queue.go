@@ -45,6 +45,9 @@ func (repo Repository) Enqueue(ctx context.Context, update Update) error {
 		return err
 	}
 	defer Rollback(tx)
+	if err := LockLifecycle(ctx, tx); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(830124821)`); err != nil {
 		return err
 	}
@@ -81,6 +84,14 @@ func (repo Repository) Enqueue(ctx context.Context, update Update) error {
 	if err != nil {
 		return err
 	}
+	var removed bool
+	if err := tx.QueryRow(ctx, `SELECT removed_at IS NOT NULL FROM users WHERE id=$1`, update.UserID).Scan(&removed); err != nil {
+		return err
+	}
+	if removed {
+		status, reply, code = "processed", RemovedMemberReply, "member_removed"
+		payload = []byte(`{}`)
+	}
 	_, err = tx.Exec(ctx, `UPDATE telegram_updates SET delivery_suspended=false,delivery_next_attempt_at=now() WHERE update_id IN (SELECT update_id FROM telegram_updates WHERE user_id=$1 AND delivery_suspended AND delivery_error='telegram_http_403' ORDER BY update_id LIMIT $2)`, update.UserID, MaxQueueSize-total-1)
 	if err != nil {
 		return err
@@ -99,7 +110,7 @@ func (repo Repository) NextUpdate(ctx context.Context, excluded ...int64) (Updat
 	return scanUpdate(repo.DB.QueryRow(ctx, `SELECT `+updateColumns+` FROM telegram_updates current WHERE status='pending' AND next_attempt_at <= now() AND NOT(user_id=ANY($1::bigint[])) AND NOT EXISTS (SELECT 1 FROM telegram_updates earlier WHERE earlier.user_id=current.user_id AND earlier.update_id<current.update_id AND earlier.status='pending') ORDER BY (SELECT processing_at FROM users WHERE id=current.user_id),update_id LIMIT 1`, excluded))
 }
 
-const updateColumns = `update_id, user_id, chat_id, payload->>'text', status, attempts, send_attempts, reply_text, message_id, reply_message_id, created_at, message_at`
+const updateColumns = `update_id, user_id, chat_id, COALESCE(payload->>'text',''), status, attempts, send_attempts, reply_text, message_id, reply_message_id, created_at, message_at`
 
 func scanUpdate(row pgx.Row) (Update, error) {
 	var update Update

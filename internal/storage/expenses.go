@@ -40,7 +40,7 @@ func translate(err error) error {
 }
 
 func (repo Repository) Users(ctx context.Context) ([]expenses.User, error) {
-	rows, err := repo.DB.Query(ctx, `SELECT id, display_name FROM users WHERE display_name <> '' ORDER BY display_name, id`)
+	rows, err := repo.DB.Query(ctx, `SELECT id, display_name, membership_version FROM users WHERE display_name <> '' AND removed_at IS NULL ORDER BY display_name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func (repo Repository) Users(ctx context.Context) ([]expenses.User, error) {
 	users := []expenses.User{}
 	for rows.Next() {
 		var user expenses.User
-		if err := rows.Scan(&user.ID, &user.DisplayName); err != nil {
+		if err := rows.Scan(&user.ID, &user.DisplayName, &user.Version); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -58,7 +58,7 @@ func (repo Repository) Users(ctx context.Context) ([]expenses.User, error) {
 
 func (repo Repository) User(ctx context.Context, userID int64) (expenses.User, error) {
 	var user expenses.User
-	err := repo.DB.QueryRow(ctx, `SELECT id, display_name FROM users WHERE id=$1 AND display_name<>''`, userID).Scan(&user.ID, &user.DisplayName)
+	err := repo.DB.QueryRow(ctx, `SELECT id, display_name, membership_version FROM users WHERE id=$1 AND display_name<>'' AND removed_at IS NULL`, userID).Scan(&user.ID, &user.DisplayName, &user.Version)
 	return user, translate(err)
 }
 
@@ -122,6 +122,12 @@ func (repo Repository) Create(ctx context.Context, input expenses.Input) (expens
 	if input.IdempotencyKey != "" {
 		return repo.createOnce(ctx, input)
 	}
+	var result expenses.Expense
+	err := repo.Write(ctx, func(current Repository) error { var err error; result, err = current.create(ctx, input); return err })
+	return result, err
+}
+
+func (repo Repository) create(ctx context.Context, input expenses.Input) (expenses.Expense, error) {
 	if err := repo.requireRegisteredUser(ctx, input.UserID); err != nil {
 		return expenses.Expense{}, err
 	}
@@ -129,6 +135,19 @@ func (repo Repository) Create(ctx context.Context, input expenses.Input) (expens
 }
 
 func (repo Repository) Update(ctx context.Context, actor, id int64, input expenses.Input) (expenses.Expense, error) {
+	if err := expenses.ValidateActor(actor); err != nil {
+		return expenses.Expense{}, err
+	}
+	var result expenses.Expense
+	err := repo.Write(ctx, func(current Repository) error {
+		var err error
+		result, err = current.update(ctx, actor, id, input)
+		return err
+	})
+	return result, err
+}
+
+func (repo Repository) update(ctx context.Context, actor, id int64, input expenses.Input) (expenses.Expense, error) {
 	if err := expenses.ValidateActor(actor); err != nil {
 		return expenses.Expense{}, err
 	}
@@ -144,7 +163,7 @@ func (repo Repository) Update(ctx context.Context, actor, id int64, input expens
 
 func (repo Repository) requireRegisteredUser(ctx context.Context, userID int64) error {
 	var registered bool
-	if err := repo.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND display_name <> '')`, userID).Scan(&registered); err != nil {
+	if err := repo.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND display_name <> '' AND removed_at IS NULL)`, userID).Scan(&registered); err != nil {
 		return err
 	}
 	if !registered {
@@ -154,6 +173,13 @@ func (repo Repository) requireRegisteredUser(ctx context.Context, userID int64) 
 }
 
 func (repo Repository) Delete(ctx context.Context, actor, id int64, version int) error {
+	if err := expenses.ValidateActor(actor); err != nil {
+		return err
+	}
+	return repo.Write(ctx, func(current Repository) error { return current.delete(ctx, actor, id, version) })
+}
+
+func (repo Repository) delete(ctx context.Context, actor, id int64, version int) error {
 	if err := expenses.ValidateActor(actor); err != nil {
 		return err
 	}

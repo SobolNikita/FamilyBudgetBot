@@ -1322,3 +1322,28 @@ fieldset.form-fields {
   padding: 0;
   min-width: 0;
 }
+.member-management-list {
+  list-style: none;
+  padding: 0;
+}
+.member-management-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+}
+.member-management-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.member-management-list small {
+  display: block;
+}
+.member-management-list button {
+  flex-shrink: 0;
+}
+.manage-members {
+  margin: 12px 0;
+  min-height: 44px;
+}

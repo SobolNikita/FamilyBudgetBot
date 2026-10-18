@@ -14,6 +14,7 @@ import { readView, viewURL, type ViewState } from './viewState'
 import Pagination from './Pagination'
 import ExpenseForm from './ExpenseForm'
 import Modal from './Modal'
+import MemberManager from './MemberManager'
 import ThemePicker from './ThemePicker'
 
 const emptyFilters: Filters = { user_id: '', from: '', to: '', category: '' }
@@ -51,6 +52,7 @@ export default function App() {
   const [opening, setOpening] = useState(false)
   const [deleting, setDeleting] = useState<Expense | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [managingMembers, setManagingMembers] = useState(false)
 
   useEffect(() => {
     if (settings) return
@@ -233,6 +235,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button className="text-button manage-members" onClick={() => setManagingMembers(true)}>
+          Управление участниками
+        </button>
         <div className="sidebar-note">
           <span>
             Маленькие расходы.
@@ -547,6 +552,18 @@ export default function App() {
           defaultUserID={filters.user_id}
           onClose={() => setEditing(null)}
           onSaved={saved}
+        />
+      )}
+      {managingMembers && (
+        <MemberManager
+          onClose={() => setManagingMembers(false)}
+          onChanged={() => {
+            setEditing(null)
+            setDeleting(null)
+            setNotice('')
+            changeView({ ...filters, user_id: '' }, 0)
+            setRevision((value) => value + 1)
+          }}
         />
       )}
       {deleting && (
