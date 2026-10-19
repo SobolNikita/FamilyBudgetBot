@@ -16,6 +16,7 @@ import (
 )
 
 // Processor owns the transaction and conversation lifecycle, independently of Telegram transport.
+// The caller must serialize updates per user; telegram.Runner enforces this.
 type Processor struct {
 	Pool      *pgxpool.Pool
 	Planner   llm.Planner
@@ -67,6 +68,7 @@ func (runner Processor) Process(ctx context.Context, repo storage.Repository, up
 			}
 			started := time.Now()
 			planCtx, planCancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer planCancel()
 			prepared.Action, err = runner.Planner.Plan(planCtx, llm.Request{Text: update.Text, Today: messageAt.In(runner.Location).Format(time.DateOnly), Currency: runner.Engine.Currency, CurrentUser: user.DisplayName, Context: state.Context, RecentExpenses: recent})
 			planCancel()
 			if err != nil {
@@ -129,6 +131,11 @@ func (runner Processor) Process(ctx context.Context, repo storage.Repository, up
 			reply += " Покупки из этого сообщения пока не записаны. Исправьте данные и отправьте весь список ещё раз."
 		}
 		nextState = bot.State{}
+		if errors.Is(err, expenses.ErrInvalid) && state.Pending == nil {
+			// Validation rolls back the attempted action, not the conversation.
+			// Conflicts and missing records still discard stale confirmations.
+			nextState = state.WithTurn(bot.Turn{Text: update.Text, Reply: reply})
+		}
 	}
 	if count := len(nextState.Context.Turns); count > 0 {
 		nextState.Context.Turns[count-1].Date = messageAt.In(runner.Location).Format(time.DateOnly)

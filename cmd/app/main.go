@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -87,8 +86,7 @@ func run() error {
 	if settings.BotEnabled {
 		api.BotStatus = func() (any, bool) { value := health.Snapshot(); return value, value.Ready }
 	}
-	server := &http.Server{Addr: settings.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
-	server.BaseContext = func(net.Listener) context.Context { return ctx }
+	server := newHTTPServer(settings.HTTPAddr, api.Handler())
 	serverErrors := make(chan error, 1)
 	go func() {
 		slog.Info("http server listening", "address", settings.HTTPAddr)
@@ -153,4 +151,10 @@ func run() error {
 		}
 	}
 	return failure
+}
+
+func newHTTPServer(address string, handler http.Handler) *http.Server {
+	// Keep request contexts independent of the process signal: Shutdown must
+	// drain active requests first. Close cancels them if the grace period expires.
+	return &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
 }

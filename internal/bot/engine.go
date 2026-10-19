@@ -252,11 +252,7 @@ func selectedExpense(prepared Prepared, actor, id int64) (expenses.Expense, bool
 }
 
 func finish(text, reply string, state State) (string, State, error) {
-	state.Context.Turns = append(state.Context.Turns, Turn{Text: text, Reply: reply})
-	if len(state.Context.Turns) > 4 {
-		state.Context.Turns = state.Context.Turns[len(state.Context.Turns)-4:]
-	}
-	return reply, state, nil
+	return reply, state.WithTurn(Turn{Text: text, Reply: reply}), nil
 }
 
 func (engine Engine) describe(expense expenses.Expense) string {
