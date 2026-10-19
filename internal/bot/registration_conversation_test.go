@@ -44,3 +44,22 @@ func TestNameConfirmationDoesNotSwallowExpensesOrDeleteConfirmation(t *testing.T
 		t.Fatal("onboarding copy leaked into rename")
 	}
 }
+
+func TestDecliningNameAllowsAnotherNameAndConfirmation(t *testing.T) {
+	for _, current := range []string{"", "Анна"} {
+		state := Registration{DisplayName: current, NameRequested: true, PendingName: "Аня"}
+		for _, text := range []string{"нет", "Мария", "да"} {
+			result := Register(state, text)
+			if !result.Handled {
+				t.Fatal("name conversation was not handled")
+			}
+			if text == "нет" && (result.PendingName != "?" || result.DisplayName != current) {
+				t.Fatalf("rejection did not return to name input: %+v", result)
+			}
+			state.DisplayName, state.PendingName = result.DisplayName, result.PendingName
+		}
+		if state.DisplayName != "Мария" || state.PendingName != "" {
+			t.Fatalf("name conversation got stuck: %+v", state)
+		}
+	}
+}

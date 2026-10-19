@@ -34,3 +34,14 @@ type State struct {
 	Context Conversation
 	Pending *Pending
 }
+
+// WithTurn retains the recent exchange without modifying the caller's history.
+func (state State) WithTurn(turn Turn) State {
+	turns := append([]Turn(nil), state.Context.Turns...)
+	turns = append(turns, turn)
+	if len(turns) > 4 {
+		turns = turns[len(turns)-4:]
+	}
+	state.Context.Turns = turns
+	return state
+}

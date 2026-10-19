@@ -94,3 +94,61 @@ func TestContextDropsTransferredExpenseBeforePlanning(t *testing.T) {
 	}
 
 }
+
+func TestInvalidFilterPreservesConversationAndContinuation(t *testing.T) {
+	pool := telegramTestDatabase(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,display_name) VALUES(111,'Анна')`); err != nil {
+		t.Fatal(err)
+	}
+	repo := storage.Repository{DB: pool}
+	service := expenses.Service{Repo: repo}
+	var last expenses.Expense
+	for range 21 {
+		item, err := service.Create(ctx, 111, expenses.Input{Amount: "1", Category: "еда", SpentAt: "2026-10-18", Comment: "кофе"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		last = item
+	}
+	_, original, err := (bot.Engine{}).Apply(ctx, service, 111, bot.Prepared{Text: "покажи расходы", Action: llm.Action{Name: "list_expenses", Subject: "self"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original.Context.LastExpense = &last
+	original.Context.Turns[0].Date = "2026-10-18"
+	if err := repo.Complete(ctx, 900, 111, "", original); err != nil {
+		t.Fatal(err)
+	}
+	planner := &batchPlanner{action: llm.Action{Name: "summarize_expenses", Subject: "self", From: "2026-02-30"}}
+	runner := Runner{Pool: pool, Planner: planner, Location: time.UTC}
+	update := storage.Update{ID: 901, UserID: 111, ChatID: 111, Text: "сколько за 30 февраля", MessageAt: time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)}
+	if err := repo.Enqueue(ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.process(ctx, repo, update); err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.State(ctx, 111)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Context.LastExpense == nil || state.Context.LastExpense.ID != last.ID || len(state.Context.Shown) != 20 || state.Context.List == nil || state.Context.List.NextOffset != 20 {
+		t.Fatalf("validation erased useful context: %+v", state)
+	}
+	if len(state.Context.Turns) != 2 || state.Context.Turns[0].Date != "2026-10-18" || state.Context.Turns[1].Date != "2026-10-19" || !strings.Contains(strings.ToLower(state.Context.Turns[1].Reply), "дат") {
+		t.Fatalf("validation was not recorded as a separate dated turn: %+v", state.Context.Turns)
+	}
+	planner.action = llm.Action{Name: "continue_expenses", Subject: "self"}
+	update.ID, update.Text = 902, "покажи ещё"
+	if err := repo.Enqueue(ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.process(ctx, repo, update); err != nil {
+		t.Fatal(err)
+	}
+	state, err = repo.State(ctx, 111)
+	if err != nil || len(state.Context.Shown) != 1 || state.Context.List == nil || state.Context.List.NextOffset != 21 {
+		t.Fatalf("continuation after invalid filter failed: %+v %v", state, err)
+	}
+}

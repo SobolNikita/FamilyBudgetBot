@@ -48,6 +48,8 @@ func TestPublicAPIValidationAndConflicts(t *testing.T) {
 		{"DELETE", "/api/expenses/1", "", 400},
 		{"GET", "/api/expenses?limit=huge", "", 400},
 		{"GET", "/api/expenses?from=2026-02-30", "", 400},
+		{"GET", "/api/expenses?search=%FF", "", 400},
+		{"GET", "/api/reports/summary?search=%FF", "", 400},
 		{"GET", "/api/expenses", "", 200},
 	} {
 		request := httptest.NewRequest(example.method, example.path, strings.NewReader(example.body))

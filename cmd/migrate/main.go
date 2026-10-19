@@ -21,11 +21,11 @@ func main() {
 	}
 	migration, err := migrate.New(source, databaseURL)
 	if err != nil {
-		log.Fatal("cannot initialize migrations; check database connectivity and migration files")
+		log.Fatalf("cannot initialize migrations: %s", migrationDiagnostic(err))
 	}
 	defer migration.Close()
 	if err := migration.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		log.Fatalf("migration failed: %v", err)
+		log.Fatalf("migration failed: %s", migrationDiagnostic(err))
 	}
 	log.Print("migrations applied")
 }

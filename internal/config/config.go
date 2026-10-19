@@ -24,6 +24,8 @@ type Config struct {
 	LLMTimeout    time.Duration
 }
 
+var currencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)
+
 func Load() (Config, error) {
 	config := Config{DatabaseURL: os.Getenv("DATABASE_URL"), HTTPAddr: value("HTTP_ADDR", ":8080"), WebDir: value("WEB_DIR", "web/dist"), Currency: value("FAMILY_CURRENCY", "RUB"), TelegramToken: os.Getenv("TELEGRAM_BOT_TOKEN"), LLMBaseURL: value("LLM_BASE_URL", "https://api.openai.com/v1"), LLMKey: os.Getenv("LLM_API_KEY"), LLMModel: os.Getenv("LLM_MODEL")}
 	if config.DatabaseURL == "" {
@@ -38,7 +40,7 @@ func Load() (Config, error) {
 	if err != nil || config.LLMTimeout < time.Second || config.LLMTimeout > 2*time.Minute {
 		return config, errors.New("LLM_TIMEOUT must be a duration between 1s and 2m")
 	}
-	if !regexp.MustCompile(`^[A-Z]{3}$`).MatchString(config.Currency) {
+	if !currencyPattern.MatchString(config.Currency) {
 		return config, errors.New("FAMILY_CURRENCY must be an uppercase ISO currency code")
 	}
 	config.BotEnabled, err = strconv.ParseBool(value("BOT_ENABLED", "false"))
