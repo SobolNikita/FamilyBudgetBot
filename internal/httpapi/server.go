@@ -291,6 +291,7 @@ func respond(writer http.ResponseWriter, value any, err error) {
 	case errors.Is(err, expenses.ErrGone):
 		status, message = http.StatusGone, expenses.UserMessage(err)
 	case errors.Is(err, context.DeadlineExceeded):
+		slog.Warn("api operation timed out", "request_id", writer.Header().Get("X-Request-ID"))
 		status, message = http.StatusGatewayTimeout, "Операция не завершилась вовремя. Обновите данные перед повтором."
 	case errors.Is(err, context.Canceled):
 		status, message = http.StatusRequestTimeout, "Запрос отменён."

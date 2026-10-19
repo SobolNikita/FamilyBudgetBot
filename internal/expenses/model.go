@@ -127,7 +127,7 @@ func ValidateFilter(filter Filter) (Filter, error) {
 			return filter, fmt.Errorf("%w: проверьте слова для поиска расходов", ErrInvalid)
 		}
 	}
-	if strings.ContainsRune(filter.Search, 0) {
+	if strings.ContainsRune(filter.Search, 0) || !utf8.ValidString(filter.Search) {
 		return filter, fmt.Errorf("%w: поиск содержит недопустимый символ", ErrInvalid)
 	}
 	if filter.UserID < 0 || filter.Offset < 0 || filter.Offset > 1000000 || filter.Limit < 0 || filter.Limit > 100 {

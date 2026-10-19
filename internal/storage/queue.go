@@ -183,6 +183,8 @@ func (repo Repository) Recent(ctx context.Context, userID int64) ([]expenses.Exp
 	return items, rows.Err()
 }
 
+// Complete must use the transaction that applied the expense or registration
+// change, so the result, conversation and mutations are committed together.
 func (repo Repository) Complete(ctx context.Context, updateID, userID int64, reply string, state dialog.State) error {
 	contextJSON, err := json.Marshal(state.Context)
 	if err != nil {

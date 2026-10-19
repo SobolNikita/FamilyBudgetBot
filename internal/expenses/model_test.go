@@ -92,6 +92,7 @@ func TestFilterValidation(t *testing.T) {
 
 func TestSearchAlternativesValidation(t *testing.T) {
 	for _, filter := range []Filter{
+		{Search: string([]byte{0xff})},
 		{Search: "кофе", SearchAny: []string{"чай"}},
 		{SearchAny: make([]string, 21)},
 		{SearchAny: []string{""}},
